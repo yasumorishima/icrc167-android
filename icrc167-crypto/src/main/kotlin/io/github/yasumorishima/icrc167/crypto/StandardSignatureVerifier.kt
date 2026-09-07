@@ -3,6 +3,7 @@ package io.github.yasumorishima.icrc167.crypto
 import io.github.yasumorishima.icrc167.SignatureVerifier
 import java.math.BigInteger
 import java.security.MessageDigest
+import org.bouncycastle.asn1.ASN1Encodable
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.crypto.ec.CustomNamedCurves
@@ -99,8 +100,15 @@ public class StandardSignatureVerifier : SignatureVerifier {
         }
     }
 
-    private fun isP256(parameters: Any?): Boolean =
-        (parameters as? ASN1ObjectIdentifier) == PRIME256V1
+    /**
+     * The curve lives in the algorithm identifier's parameters. Compare the ASN.1 primitive
+     * rather than casting the wrapper: for a named curve the parameters are an X9.62 CHOICE,
+     * so the runtime type is not necessarily [ASN1ObjectIdentifier] even though it encodes
+     * as one. Casting instead of unwrapping makes every P-256 key look unsupported, which
+     * fails as a silent rejection rather than an error.
+     */
+    private fun isP256(parameters: ASN1Encodable?): Boolean =
+        parameters?.toASN1Primitive() == PRIME256V1
 
     private companion object {
         // Spelled out rather than taken from a library constant: these OIDs are part of the

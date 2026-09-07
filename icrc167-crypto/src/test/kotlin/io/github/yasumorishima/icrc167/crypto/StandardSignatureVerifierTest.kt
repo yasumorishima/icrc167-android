@@ -68,6 +68,14 @@ class StandardSignatureVerifierTest {
     }
 
     @Test
+    fun `recognises Ed25519 and P-256 keys as supported`() {
+        // The negative tests below pass just as well when a key is not recognised at all,
+        // so assert recognition on its own.
+        assertTrue(verifier.supports(Ed25519TestKey().der))
+        assertTrue(verifier.supports(P256TestKey().der))
+    }
+
+    @Test
     fun `rejects a P-256 signature in DER form`() {
         // WebCrypto — and therefore Internet Identity — emits r||s. Accepting DER as well
         // would mean guessing the encoding from attacker-controlled bytes.
