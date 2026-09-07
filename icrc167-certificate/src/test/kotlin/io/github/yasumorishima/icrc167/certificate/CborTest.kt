@@ -51,6 +51,20 @@ class CborTest {
     }
 
     @Test
+    fun `refuses text that is not valid UTF-8`() {
+        // Replacing malformed bytes with U+FFFD would let two different encodings decode to
+        // the same map key.
+        assertFailsWith<CborException> { Cbor.decode("62c328".hexToBytes()) }
+    }
+
+    @Test
+    fun `accepts a count that exactly fills the remaining input`() {
+        // The allocation guard rejects counts larger than the bytes left; it must not also
+        // reject the largest legitimate one.
+        assertEquals(3, (Cbor.decode("83010203".hexToBytes()) as CborValue.Items).items.size)
+    }
+
+    @Test
     fun `refuses major types a certificate never uses`() {
         assertFailsWith<CborException> { Cbor.decode("20".hexToBytes()) } // negative integer
         assertFailsWith<CborException> { Cbor.decode("f6".hexToBytes()) } // null

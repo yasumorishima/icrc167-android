@@ -41,8 +41,11 @@ public object Cbor {
         fun remaining(): Int = bytes.size - offset
 
         fun readValue(depth: Int): CborValue {
-            // A certificate is a handful of levels deep. Anything deeper is either a bug or
-            // someone trying to exhaust the stack with nesting alone.
+            // Nesting alone must not exhaust the stack. The bound is generous because a
+            // certificate over a large subnet is a balanced fork tree — depth grows with the
+            // log of the number of canisters — and rejecting a legitimate one would be a
+            // failure to sign in, not a defence. Allocation is bounded separately, by the
+            // input length, so depth costs nothing on its own.
             if (depth > MAX_DEPTH) throw CborException("nested deeper than $MAX_DEPTH")
 
             val initial = readByte().toInt() and 0xff
@@ -52,7 +55,7 @@ public object Cbor {
             return when (major) {
                 MAJOR_UNSIGNED -> CborValue.Unsigned(argument)
                 MAJOR_BYTES -> CborValue.Bytes(readBytes(argument))
-                MAJOR_TEXT -> CborValue.Text(String(readBytes(argument), Charsets.UTF_8))
+                MAJOR_TEXT -> CborValue.Text(decodeUtf8(readBytes(argument)))
                 MAJOR_ARRAY -> CborValue.Items(
                     (0 until checkedCount(argument)).map { readValue(depth + 1) },
                 )
@@ -102,13 +105,27 @@ public object Cbor {
             return slice
         }
 
+        /**
+         * Rejects malformed UTF-8 rather than replacing it with U+FFFD. Two different byte
+         * strings must not decode to the same key.
+         */
+        private fun decodeUtf8(bytes: ByteArray): String = try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes))
+                .toString()
+        } catch (e: java.nio.charset.CharacterCodingException) {
+            throw CborException("text string is not valid UTF-8")
+        }
+
         private fun readByte(): Byte {
             if (offset >= bytes.size) throw CborException("input ended in the middle of a value")
             return bytes[offset++]
         }
     }
 
-    private const val MAX_DEPTH = 32
+    private const val MAX_DEPTH = 128
     private const val MAJOR_UNSIGNED = 0
     private const val MAJOR_BYTES = 2
     private const val MAJOR_TEXT = 3

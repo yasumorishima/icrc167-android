@@ -122,12 +122,42 @@ class HashTreeTest {
     @Test
     fun `rejects a pruned digest of the wrong length`() {
         // 8204 43 aabbcc = Pruned(3 bytes)
-        assertFailsWith<CborException> { parse("820443aabbcc".hexToBytes()) }
+        val error = assertFailsWith<CborException> { parse("820443aabbcc".hexToBytes()) }
+        assertTrue(error.message!!.contains("pruned digest"))
     }
 
     @Test
     fun `rejects an unknown node type`() {
-        assertFailsWith<CborException> { parse("820541ff".hexToBytes()) }
+        val error = assertFailsWith<CborException> { parse("820541ff".hexToBytes()) }
+        assertTrue(error.message!!.contains("unknown hash tree node type"))
+    }
+
+    @Test
+    fun `absence depends on where the pruned node sits`() {
+        val label = "b".toByteArray()
+
+        // A digest before the first label could have been hiding it, so nothing is proved.
+        val prunedFirst = HashTree.Fork(
+            HashTree.Pruned(ByteArray(32)),
+            HashTree.Labeled("c".toByteArray(), HashTree.Leaf(byteArrayOf(1))),
+        )
+        assertIs<Lookup.Unknown>(prunedFirst.lookupPath(listOf(label)))
+
+        // A digest *after* a larger first label cannot be: labels only increase, so nothing
+        // smaller than the first one can be further along.
+        val prunedLast = HashTree.Fork(
+            HashTree.Labeled("c".toByteArray(), HashTree.Leaf(byteArrayOf(1))),
+            HashTree.Pruned(ByteArray(32)),
+        )
+        assertIs<Lookup.Absent>(prunedLast.lookupPath(listOf(label)))
+    }
+
+    @Test
+    fun `a witness read out of the tree cannot be edited afterwards`() {
+        val tree = parse(fullTree)
+        val first = (tree.lookupPath("b") as Lookup.Found).value
+        first[0] = 0
+        assertEquals("good", (tree.lookupPath("b") as Lookup.Found).value.decodeToString())
     }
 
     @Test

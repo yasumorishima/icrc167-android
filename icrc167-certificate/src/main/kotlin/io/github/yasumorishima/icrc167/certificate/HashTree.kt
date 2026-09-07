@@ -13,10 +13,26 @@ import java.security.MessageDigest
  */
 public sealed interface HashTree {
     public object Empty : HashTree
+
     public class Fork(public val left: HashTree, public val right: HashTree) : HashTree
-    public class Labeled(public val label: ByteArray, public val subtree: HashTree) : HashTree
-    public class Leaf(public val value: ByteArray) : HashTree
-    public class Pruned(public val hash: ByteArray) : HashTree
+
+    // The byte arrays below are held privately and handed out as copies. A witness is
+    // checked once and read many times; a caller that mutated one afterwards would be
+    // reading something the root hash never covered.
+    public class Labeled(label: ByteArray, public val subtree: HashTree) : HashTree {
+        internal val rawLabel: ByteArray = label.copyOf()
+        public val label: ByteArray get() = rawLabel.copyOf()
+    }
+
+    public class Leaf(value: ByteArray) : HashTree {
+        internal val rawValue: ByteArray = value.copyOf()
+        public val value: ByteArray get() = rawValue.copyOf()
+    }
+
+    public class Pruned(hash: ByteArray) : HashTree {
+        internal val rawHash: ByteArray = hash.copyOf()
+        public val hash: ByteArray get() = rawHash.copyOf()
+    }
 
     public companion object {
         private const val NODE_EMPTY = 0L
@@ -96,10 +112,10 @@ public fun HashTree.reconstruct(): ByteArray = when (this) {
     is HashTree.Fork ->
         sha256(domainSeparator("ic-hashtree-fork"), left.reconstruct(), right.reconstruct())
     is HashTree.Labeled ->
-        sha256(domainSeparator("ic-hashtree-labeled"), label, subtree.reconstruct())
-    is HashTree.Leaf -> sha256(domainSeparator("ic-hashtree-leaf"), value)
+        sha256(domainSeparator("ic-hashtree-labeled"), rawLabel, subtree.reconstruct())
+    is HashTree.Leaf -> sha256(domainSeparator("ic-hashtree-leaf"), rawValue)
     // A pruned node *is* its digest; that is the whole point of pruning.
-    is HashTree.Pruned -> hash.copyOf()
+    is HashTree.Pruned -> rawHash.copyOf()
 }
 
 /** Follows a path of labels, per `lookup_path` in the interface specification. */
@@ -113,7 +129,7 @@ public fun HashTree.lookupPath(path: List<ByteArray>): Lookup {
         }
     }
     return when (node) {
-        is HashTree.Leaf -> Lookup.Found((node as HashTree.Leaf).value.copyOf())
+        is HashTree.Leaf -> Lookup.Found((node as HashTree.Leaf).rawValue.copyOf())
         is HashTree.Empty -> Lookup.Absent
         is HashTree.Pruned -> Lookup.Unknown
         is HashTree.Labeled, is HashTree.Fork -> Lookup.Error
@@ -138,7 +154,7 @@ public fun HashTree.isWellFormed(): Boolean {
     for (node in forest) {
         when (node) {
             is HashTree.Labeled -> {
-                labels.add(node.label)
+                labels.add(node.rawLabel)
                 if (!node.subtree.isWellFormed()) return false
             }
             is HashTree.Pruned -> Unit
@@ -176,21 +192,21 @@ private fun flattenForks(tree: HashTree): List<HashTree> = when (tree) {
  */
 private fun findLabel(label: ByteArray, forest: List<HashTree>): LabelSearch {
     forest.forEach {
-        if (it is HashTree.Labeled && it.label.contentEquals(label)) return LabelSearch.Found(it.subtree)
+        if (it is HashTree.Labeled && it.rawLabel.contentEquals(label)) return LabelSearch.Found(it.subtree)
     }
     for (i in 0 until forest.size - 1) {
         val left = forest[i]
         val right = forest[i + 1]
         if (left is HashTree.Labeled && right is HashTree.Labeled &&
-            compareUnsigned(left.label, label) < 0 && compareUnsigned(label, right.label) < 0
+            compareUnsigned(left.rawLabel, label) < 0 && compareUnsigned(label, right.rawLabel) < 0
         ) {
             return LabelSearch.Absent
         }
     }
     (forest.firstOrNull() as? HashTree.Labeled)
-        ?.let { if (compareUnsigned(label, it.label) < 0) return LabelSearch.Absent }
+        ?.let { if (compareUnsigned(label, it.rawLabel) < 0) return LabelSearch.Absent }
     (forest.lastOrNull() as? HashTree.Labeled)
-        ?.let { if (compareUnsigned(it.label, label) < 0) return LabelSearch.Absent }
+        ?.let { if (compareUnsigned(it.rawLabel, label) < 0) return LabelSearch.Absent }
     if (forest.isEmpty()) return LabelSearch.Absent
     if (forest.size == 1 && forest[0] is HashTree.Leaf) return LabelSearch.Absent
     return LabelSearch.Unknown
