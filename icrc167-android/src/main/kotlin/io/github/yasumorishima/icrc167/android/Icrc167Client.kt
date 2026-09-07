@@ -61,12 +61,17 @@ public class Icrc167Client(
         public val sessionPublicKeyDer: ByteArray,
     )
 
+    /** The key a completed sign-in is bound to, for signing calls to canisters. */
+    public fun activeSessionKey(): SessionKey? = keys.active()
+
     /**
      * Starts an attempt and returns the URL to open. Prefer [launch] unless the app wants to
      * open the browser itself.
      */
     public fun beginAuthentication(targets: List<Principal>? = null): Pending {
-        val key = keys.loadOrCreate()
+        // A fresh key every time: presenting one public key to a signer twice would make two
+        // sign-ins linkable by the key alone. It only replaces the active key on success.
+        val key = keys.beginAttempt()
         val request = Icrc167.delegationRequest(
             callback = callbackUrl,
             sessionPublicKeyDer = key.publicKeyDer,
@@ -80,6 +85,7 @@ public class Icrc167Client(
             .putString(PENDING_ID, request.requestId)
             .putString(PENDING_STATE, request.state)
             .putString(PENDING_TARGETS, targets?.joinToString(",") { it.toText() })
+            .putLong(PENDING_STARTED_AT, System.currentTimeMillis())
             .apply()
         return Pending(
             authorizationUrl = request.authorizationUrl(),
@@ -90,26 +96,42 @@ public class Icrc167Client(
     }
 
     public fun launch(context: Context, targets: List<Principal>? = null) {
-        val pending = beginAuthentication(targets)
+        val started = beginAuthentication(targets)
         CustomTabsIntent.Builder()
             .setShowTitle(true)
             .build()
-            .launchUrl(context, Uri.parse(pending.authorizationUrl))
+            .launchUrl(context, Uri.parse(started.authorizationUrl))
     }
 
     /** Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. */
     public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome {
         val uri = intent.data ?: return AuthOutcome.NotOurs
-        val requestId = pending.getString(PENDING_ID, null) ?: return AuthOutcome.NotOurs
-        val state = pending.getString(PENDING_STATE, null) ?: return AuthOutcome.NotOurs
-        val key = keys.load() ?: return AuthOutcome.Failed("the session key is gone")
 
         // Read the *encoded* fragment. Uri.getFragment() percent-decodes the whole thing, so
         // an encoded '&' inside the payload turns into a separator and invents a parameter
         // that was never sent. Measured on a real device; see the fragment probe.
-        val encodedFragment = uri.encodedFragment
-            ?: return AuthOutcome.Failed("the callback carried no fragment")
+        val encodedFragment = uri.encodedFragment ?: return AuthOutcome.NotOurs
         val base = uri.buildUpon().encodedFragment(null).build().toString()
+
+        // A link to some other part of the app is not a failed sign-in.
+        if (!looksLikeOurCallback(base)) return AuthOutcome.NotOurs
+
+        val requestId = pending.getString(PENDING_ID, null) ?: return AuthOutcome.NotOurs
+        val state = pending.getString(PENDING_STATE, null) ?: return AuthOutcome.NotOurs
+
+        // An attempt nobody ever answered would otherwise sit there forever, and every later
+        // link would be judged against it.
+        val startedAt = pending.getLong(PENDING_STARTED_AT, 0L)
+        if (startedAt > 0 && System.currentTimeMillis() - startedAt > attemptLifetimeMillis()) {
+            abandonAttempt()
+            return AuthOutcome.NotOurs
+        }
+
+        val key = keys.pending() ?: run {
+            // Nothing can ever complete this attempt, so do not keep judging links against it.
+            abandonAttempt()
+            return AuthOutcome.Failed("the session key for this attempt is gone")
+        }
 
         val targets = pending.getString(PENDING_TARGETS, null)
             ?.split(",")
@@ -127,43 +149,82 @@ public class Icrc167Client(
         )
 
         return when (val result = request.complete("$base#$encodedFragment", nowNanos)) {
+            // Deliberately keeps the attempt alive: a forged or stale callback must not be
+            // able to burn a sign-in the user is still in the middle of.
             is Icrc167Result.Rejected -> AuthOutcome.Failed(result.reason)
+
             is Icrc167Result.SignerError -> {
-                clearPending()
+                abandonAttempt()
                 AuthOutcome.Failed("signer returned ${result.code}: ${result.message}")
             }
+
             is Icrc167Result.Authenticated -> {
-                clearPending()
                 when (
                     val verification =
                         chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
                 ) {
-                    is ChainVerification.Invalid ->
+                    is ChainVerification.Invalid -> {
+                        abandonAttempt()
                         AuthOutcome.Failed("chain rejected: ${verification.reason}")
-                    is ChainVerification.Valid -> AuthOutcome.Success(
-                        principal = verification.principal,
-                        chain = result.chain,
-                        effectiveTargets = result.effectiveTargets,
-                    )
+                    }
+                    is ChainVerification.Valid -> {
+                        clearPending()
+                        keys.promotePending()
+                        AuthOutcome.Success(
+                            principal = verification.principal,
+                            chain = result.chain,
+                            effectiveTargets = result.effectiveTargets,
+                        )
+                    }
                 }
             }
         }
     }
 
-    /** Forgets the pending attempt and the session key, e.g. on sign-out. */
+    /** Forgets the pending attempt and every session key, e.g. on sign-out. */
     public fun signOut() {
         clearPending()
         keys.clear()
     }
 
-    private fun clearPending() {
-        pending.edit().remove(PENDING_ID).remove(PENDING_STATE).remove(PENDING_TARGETS).apply()
+    private fun abandonAttempt() {
+        clearPending()
+        keys.discardPending()
     }
+
+    private fun clearPending() {
+        pending.edit()
+            .remove(PENDING_ID)
+            .remove(PENDING_STATE)
+            .remove(PENDING_TARGETS)
+            .remove(PENDING_STARTED_AT)
+            .apply()
+    }
+
+    /**
+     * A cheap routing check only. The authoritative comparison happens inside `complete`,
+     * which is byte-exact on the path; this exists so an unrelated deep link is reported as
+     * [AuthOutcome.NotOurs] rather than as a failed sign-in.
+     */
+    private fun looksLikeOurCallback(base: String): Boolean =
+        normaliseOrigin(base) == normaliseOrigin(callbackUrl)
+
+    private fun normaliseOrigin(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return url
+        val authorityEnd = url.indexOf('/', schemeEnd + 3).let { if (it < 0) url.length else it }
+        return url.substring(0, authorityEnd).lowercase() + url.substring(authorityEnd)
+    }
+
+    /** A delegation cannot outlive its own lifetime, so neither can an attempt for one. */
+    private fun attemptLifetimeMillis(): Long =
+        maxTimeToLiveNanos.divide(BigInteger.valueOf(1_000_000)).toLong()
 
     private companion object {
         const val PREFERENCES = "icrc167-pending"
         const val PENDING_ID = "request-id"
         const val PENDING_STATE = "state"
         const val PENDING_TARGETS = "targets"
+        const val PENDING_STARTED_AT = "started-at"
     }
 }

@@ -72,25 +72,25 @@ for, and the answer is delivered as an App Link
 (`.github/workflows/fragment-probe.yml`). No Internet Identity, no passkey, no network, no
 real domain — but every step the app performs is the real one.
 
+There are three cases, and the negative ones carry the weight. **A passing positive case on
+its own proves almost nothing here**: the principal is derived from the root public key in
+the response, so it would still come out right if signature checking were removed entirely.
+
 ```
-1. the app starts an attempt
-   BEGIN|pubkey=MCowBQYDK2VwAyEAM/7v…|id=asaHhAkJLec|state=SM6NGB_u09PVdjc1Jmu_rg
-2. the process is reclaimed while the browser is in front   (am force-stop)
-3. the stand-in signer answers
-   expected principal: febb4-idpcp-…-opnfv-xqe
-4. delivered as an App Link, into a fresh process
-   pid 5891  SUCCESS|principal=febb4-idpcp-…-opnfv-xqe
-             SUCCESS|hops=1|scope=null
+A. an answer carrying somebody else's state   → refused, attempt survives
+B. the same attempt then completes            → SUCCESS, in a different pid
+C. a signature that does not check out        → refused, BadSignature
 ```
 
-The process id changes between step 1 and step 4, which is the point: the attempt is
-reconstructed from storage, not found in memory. On a real device the browser owns the
-foreground for as long as the user takes to authenticate, so that is the only path that
-matters. The principal is derived by the app from the root key inside the delegation, and it
-has to equal the one the signer computed independently.
+`B` asserts the process id actually changed, and `A` asserts the process was gone before the
+answer arrived, so the attempt is demonstrably reconstructed from storage rather than found
+in memory. On a real device the browser owns the foreground for as long as the user takes to
+authenticate, so that is the only path that matters. That `B` succeeds *after* `A` is what
+shows a forged callback cannot burn a sign-in the user is still in the middle of.
 
 What this does *not* establish: that a real Internet Identity chain verifies. That chain is
-rooted in a canister signature, which is still unimplemented.
+rooted in a canister signature, which is still unimplemented. Nor does it exercise Custom
+Tabs, Digital Asset Links verification, or the signer's own callback matching.
 
 The same run also pins down a trap worth stating plainly. `Uri.getFragment()`
 percent-decodes the *whole* fragment before you can split it:

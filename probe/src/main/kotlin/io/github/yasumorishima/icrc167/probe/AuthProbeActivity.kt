@@ -27,6 +27,9 @@ class AuthProbeActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Without this, a later recreation replays the launch intent and starts a second
+        // attempt, overwriting the pending one. Apps copy this shape, so get it right here.
+        setIntent(intent)
         handle(intent)
     }
 

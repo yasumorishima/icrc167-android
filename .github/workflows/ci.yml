@@ -56,7 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           url="${{ vars.CALLBACK_ORIGIN }}/.well-known/ii-auth-callbacks"
-          headers="$(curl -sS -D - -o /tmp/body --max-time 20 "$url")"
+          # Ask the way the signer does, from its own origin: a CORS rule that only answers
+          # same-origin requests would otherwise pass here and fail at sign-in.
+          headers="$(curl -sS -D - -o /tmp/body -H 'Origin: https://id.ai' --max-time 20 "$url")"
           echo "$headers"
           echo "$headers" | head -1 | grep -q ' 200 ' \
             || { echo "::error::expected 200, and no redirect"; exit 1; }
@@ -64,7 +66,11 @@ jobs:
             || { echo "::error::content-type must be application/json"; exit 1; }
           echo "$headers" | grep -iq '^access-control-allow-origin:' \
             || { echo "::error::the signer must be able to read this cross-origin"; exit 1; }
+          echo "$headers" | grep -iq '^cache-control:.*no-store'             || echo "::warning::no-store is not set; the signer must see the current list"
+          size="$(wc -c < /tmp/body)"
+          [ "$size" -le 8192 ]             || { echo "::error::$size bytes is over the 8 KiB the signer reads"; exit 1; }
           jq -e '.callbacks | type == "array" and length > 0' /tmp/body
+          jq -e --arg o "${{ vars.CALLBACK_ORIGIN }}" 'all(.callbacks[]; startswith($o + "/"))'             /tmp/body || { echo "::error::an entry is not on this origin"; exit 1; }
 
       - name: /.well-known/assetlinks.json
         run: |

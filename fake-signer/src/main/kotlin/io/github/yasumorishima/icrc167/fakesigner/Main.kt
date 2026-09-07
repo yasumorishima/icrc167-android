@@ -25,20 +25,30 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * the test does not check an encoder against itself.
  */
 fun main(args: Array<String>) {
-    require(args.size == 4) {
-        "usage: <callbackUrl> <sessionPublicKeyDerBase64> <requestId> <state>"
+    require(args.size == 4 || args.size == 5) {
+        "usage: <callbackUrl> <sessionPublicKeyDerBase64> <requestId> <state> " +
+            "[valid|bad-signature|wrong-state]"
     }
     val callbackUrl = args[0]
     val sessionPublicKeyDer = Base64.getDecoder().decode(args[1])
     val requestId = args[2]
-    val state = args[3]
+    val requestedState = args[3]
+    val mode = if (args.size == 5) args[4] else "valid"
+    require(mode in setOf("valid", "bad-signature", "wrong-state")) { "unknown mode: $mode" }
+
+    // The client must not accept a chain whose signature does not check out, and must not
+    // accept an answer bound to somebody else's attempt. Both are answers a real signer would
+    // never give, which is exactly why the test has to manufacture them.
+    val state = if (mode == "wrong-state") "not-the-state-that-was-asked-for" else requestedState
 
     val root = Ed25519Key()
     val expiration = BigInteger.valueOf(System.currentTimeMillis() + ONE_HOUR_MILLIS)
         .multiply(BigInteger.valueOf(1_000_000))
 
     val delegation = Delegation(sessionPublicKeyDer, expiration)
-    val signature = root.sign(delegation.signableBytes())
+    val signature = root.sign(delegation.signableBytes()).also {
+        if (mode == "bad-signature") it[0] = (it[0].toInt() xor 0x01).toByte()
+    }
 
     val message = buildString {
         append("""{"jsonrpc":"2.0","id":""").append(quote(requestId)).append(""","result":{""")

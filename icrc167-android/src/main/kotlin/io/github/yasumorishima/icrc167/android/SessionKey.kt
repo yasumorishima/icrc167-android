@@ -2,9 +2,11 @@ package io.github.yasumorishima.icrc167.android
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
 import java.util.Base64
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -55,21 +57,52 @@ public class SessionKey private constructor(private val seed: ByteArray) {
 }
 
 /**
- * Persists one [SessionKey] across process death, encrypted under a Keystore AES key.
+ * Holds session keys, encrypted under a Keystore AES key.
  *
- * A session key is not a long-term identity: it is the key a delegation is issued to, and the
- * delegation expires on its own. Losing it costs the user another sign-in, nothing more, so
- * [clear] is a reasonable answer to anything unexpected.
+ * There are two slots on purpose. Each attempt gets a **fresh** key, so that the same public
+ * key is never presented to a signer twice — two sign-ins with different Internet Identity
+ * anchors would otherwise be trivially linkable by the key alone. That new key only replaces
+ * the [active] one when an attempt actually succeeds, so abandoning a sign-in does not
+ * invalidate the delegation the app is already holding.
  */
 public class SessionKeyStore(context: Context) {
 
     private val preferences =
         context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
-    public fun loadOrCreate(): SessionKey = load() ?: SessionKey.generate().also { store(it) }
+    /** Mints a key for a new attempt, replacing any earlier unfinished one. */
+    @Synchronized
+    public fun beginAttempt(): SessionKey = SessionKey.generate().also { store(PENDING_SEED, it) }
 
-    public fun load(): SessionKey? {
-        val packed = preferences.getString(SEED_KEY, null) ?: return null
+    /** The key the pending attempt is bound to, if there is one. */
+    @Synchronized
+    public fun pending(): SessionKey? = load(PENDING_SEED)
+
+    /** The key a completed sign-in is bound to. */
+    @Synchronized
+    public fun active(): SessionKey? = load(ACTIVE_SEED)
+
+    /** Called once an attempt has produced a chain that verified. */
+    @Synchronized
+    public fun promotePending(): SessionKey? {
+        val key = load(PENDING_SEED) ?: return null
+        store(ACTIVE_SEED, key)
+        preferences.edit().remove(PENDING_SEED).apply()
+        return key
+    }
+
+    @Synchronized
+    public fun discardPending() {
+        preferences.edit().remove(PENDING_SEED).apply()
+    }
+
+    @Synchronized
+    public fun clear() {
+        preferences.edit().remove(PENDING_SEED).remove(ACTIVE_SEED).apply()
+    }
+
+    private fun load(slot: String): SessionKey? {
+        val packed = preferences.getString(slot, null) ?: return null
         return try {
             val blob = Base64.getDecoder().decode(packed)
             val iv = blob.copyOfRange(0, GCM_IV_BYTES)
@@ -78,25 +111,24 @@ public class SessionKeyStore(context: Context) {
                 init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
             }
             SessionKey.fromSeed(cipher.doFinal(ciphertext))
-        } catch (_: Exception) {
-            // A rotated or invalidated Keystore key makes the stored seed permanently
-            // unreadable. That is a lost session, not an error worth propagating.
-            clear()
+        } catch (e: Exception) {
+            // Only discard the seed for failures that mean it can never be read again. A
+            // transient Keystore error must not be answered by destroying the user's session.
+            val permanent = e is AEADBadTagException ||
+                e is KeyPermanentlyInvalidatedException ||
+                e is IllegalArgumentException
+            if (permanent) preferences.edit().remove(slot).apply()
             null
         }
     }
 
-    public fun clear() {
-        preferences.edit().remove(SEED_KEY).apply()
-    }
-
-    private fun store(key: SessionKey) {
+    private fun store(slot: String, key: SessionKey) {
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
             init(Cipher.ENCRYPT_MODE, wrappingKey())
         }
         val blob = cipher.iv + cipher.doFinal(key.seedBytes())
         preferences.edit()
-            .putString(SEED_KEY, Base64.getEncoder().encodeToString(blob))
+            .putString(slot, Base64.getEncoder().encodeToString(blob))
             .apply()
     }
 
@@ -120,7 +152,8 @@ public class SessionKeyStore(context: Context) {
 
     private companion object {
         const val PREFERENCES = "icrc167-session"
-        const val SEED_KEY = "session-seed"
+        const val PENDING_SEED = "pending-seed"
+        const val ACTIVE_SEED = "active-seed"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val WRAPPING_KEY_ALIAS = "icrc167-session-wrapping-key"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

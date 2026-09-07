@@ -1,0 +1,5 @@
+# Everything in this repository is consumed by Linux CI and by Gradle; CRLF in a shell
+# script is a runtime failure there, not a cosmetic difference.
+* text=auto eol=lf
+*.jar binary
+*.png binary
