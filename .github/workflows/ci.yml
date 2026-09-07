@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: "Why this run was started"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: icrc167-core (JVM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11"
+
+      - name: Test
+        run: gradle --no-daemon --stacktrace :icrc167-core:test
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: icrc167-core/build/reports/tests/test
+          retention-days: 7
+
+  well-known:
+    name: Callback origin contract
+    runs-on: ubuntu-latest
+    # The signer fetches these before it will return a delegation, and it fails closed on a
+    # redirect, a wrong content type, or a missing CORS header. Measure them, do not assume.
+    if: vars.CALLBACK_ORIGIN != ''
+    steps:
+      - name: /.well-known/ii-auth-callbacks
+        run: |
+          set -euo pipefail
+          url="${{ vars.CALLBACK_ORIGIN }}/.well-known/ii-auth-callbacks"
+          headers="$(curl -sS -D - -o /tmp/body --max-time 20 "$url")"
+          echo "$headers"
+          echo "$headers" | head -1 | grep -q ' 200 ' \
+            || { echo "::error::expected 200, and no redirect"; exit 1; }
+          echo "$headers" | grep -iq '^content-type: *application/json' \
+            || { echo "::error::content-type must be application/json"; exit 1; }
+          echo "$headers" | grep -iq '^access-control-allow-origin:' \
+            || { echo "::error::the signer must be able to read this cross-origin"; exit 1; }
+          jq -e '.callbacks | type == "array" and length > 0' /tmp/body
+
+      - name: /.well-known/assetlinks.json
+        run: |
+          set -euo pipefail
+          url="${{ vars.CALLBACK_ORIGIN }}/.well-known/assetlinks.json"
+          headers="$(curl -sS -D - -o /tmp/links --max-time 20 "$url")"
+          echo "$headers"
+          echo "$headers" | head -1 | grep -q ' 200 ' \
+            || { echo "::error::expected 200, and no redirect"; exit 1; }
+          jq -e '.[0].target.package_name' /tmp/links

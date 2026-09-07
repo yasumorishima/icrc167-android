@@ -1,0 +1,79 @@
+# icrc167-android
+
+Internet Identity login for native **Android** apps, with no bridge server.
+
+This implements the relying-party side of **ICRC-167 (Browser URL Transport)** — the mechanism
+that lets a native app hand a user to Internet Identity in the browser and get a delegation
+back, without a `postMessage` channel and without hosting a relay of your own.
+
+An iOS implementation already exists ([`ICNativeClient`](https://github.com/humandebri/ICNativeClient),
+Swift). This is the Android counterpart.
+
+## Status
+
+**Early. The protocol core is implemented and tested; the Android layer is not written yet.**
+
+| | |
+|---|---|
+| Request/response codec, `state` and id binding, replay refusal | done, tested |
+| Delegation chain verification (walk, expiry, scope, session-key binding) | done, tested |
+| Ed25519 / P-256 / canister-signature verifiers | not yet — the core takes an injected `SignatureVerifier` |
+| Android module (Custom Tabs, App Links, key storage) | not yet |
+| Demo app | not yet |
+
+Nothing here has been through a real Internet Identity round trip yet. When it has, this
+table will say so.
+
+### The specification is a draft
+
+ICRC-167 is at **IDEA** stage in the identity working group. The spec text lives in an
+[open pull request](https://github.com/dfinity/wg-identity-authentication/pull/246); the
+number `167` is [an empty placeholder issue](https://github.com/dfinity/ICRC/issues/167) in
+the ICRC repository. The transport is nonetheless live: Internet Identity serves it at
+`https://id.ai/authorize`, and DFINITY's own reference relying party runs it in production.
+
+Expect the wire format to move. The parts that would move are deliberately kept in one place.
+
+## How it works
+
+1. The app generates a session key pair and opens the browser at
+   `https://id.ai/authorize#message=…&callback=…&state=…`
+2. The user authenticates with a passkey.
+3. Internet Identity fetches `/.well-known/ii-auth-callbacks` from the callback's own origin
+   and returns the delegation **only** to a URL declared there, byte for byte.
+4. The browser navigates to that callback; Android App Links routes it into the app.
+5. The app checks the chain and can then sign calls to canisters as that user.
+
+Both the request and the response ride in the URL **fragment**, so the payload — which
+contains a delegation — never reaches any server or proxy log.
+
+## What you have to host
+
+ICRC-167 puts the trust anchor on the relying party's origin, so an app alone is not enough.
+The callback origin must serve, without redirects:
+
+- `/.well-known/ii-auth-callbacks` — `application/json`, CORS-readable, listing the exact
+  callback URL. Internet Identity refuses the flow if this does not match byte for byte.
+- `/.well-known/assetlinks.json` — Digital Asset Links, so Android verifies the app owns the
+  domain and routes the callback to it instead of leaving it in the browser.
+
+The CI job `well-known` measures both against a live origin rather than trusting that they
+were deployed correctly. It runs when the repository variable `CALLBACK_ORIGIN` is set.
+
+Note that **GitHub Pages is not suitable** as this origin: serving an extensionless path with
+`application/json` there requires the directory-plus-`index.json` trick, which introduces a
+301 redirect, and the specification requires the signer to refuse redirects.
+
+## Building
+
+There is no Gradle wrapper committed; CI provisions Gradle.
+
+```
+gradle :icrc167-core:test
+```
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+
+This project is not affiliated with DFINITY.
