@@ -8,6 +8,18 @@ name: Device tests
 on:
   push:
     branches: [main]
+    # Booting an emulator costs half an hour. Only pay it when something it could
+    # actually catch has changed.
+    paths:
+      - "icrc167-core/**"
+      - "icrc167-crypto/**"
+      - "icrc167-android/**"
+      - "probe/**"
+      - "fake-signer/**"
+      - "scripts/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/fragment-probe.yml"
   pull_request:
   workflow_dispatch:
     inputs:

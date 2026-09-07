@@ -20,7 +20,7 @@ Swift). This is the Android counterpart.
 | Granted-scope checking against the request | done, tested |
 | Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
 | Canister-signature verification | not yet — needs IC certificate + BLS |
-| Android module (Custom Tabs, App Links, key storage) | not yet |
+| Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
 | Demo app | not yet |
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
@@ -64,6 +64,33 @@ sent                         379 bytes  sha256 e17b6549…4850
 explicit component start     379 bytes  sha256 e17b6549…4850
 implicit VIEW (link routing) 379 bytes  sha256 e17b6549…4850
 ```
+
+## The round trip runs on a device
+
+A stand-in signer produces a genuinely signed delegation over the session key the app asked
+for, and the answer is delivered as an App Link
+(`.github/workflows/fragment-probe.yml`). No Internet Identity, no passkey, no network, no
+real domain — but every step the app performs is the real one.
+
+```
+1. the app starts an attempt
+   BEGIN|pubkey=MCowBQYDK2VwAyEAM/7v…|id=asaHhAkJLec|state=SM6NGB_u09PVdjc1Jmu_rg
+2. the process is reclaimed while the browser is in front   (am force-stop)
+3. the stand-in signer answers
+   expected principal: febb4-idpcp-…-opnfv-xqe
+4. delivered as an App Link, into a fresh process
+   pid 5891  SUCCESS|principal=febb4-idpcp-…-opnfv-xqe
+             SUCCESS|hops=1|scope=null
+```
+
+The process id changes between step 1 and step 4, which is the point: the attempt is
+reconstructed from storage, not found in memory. On a real device the browser owns the
+foreground for as long as the user takes to authenticate, so that is the only path that
+matters. The principal is derived by the app from the root key inside the delegation, and it
+has to equal the one the signer computed independently.
+
+What this does *not* establish: that a real Internet Identity chain verifies. That chain is
+rooted in a canister signature, which is still unimplemented.
 
 The same run also pins down a trap worth stating plainly. `Uri.getFragment()`
 percent-decodes the *whole* fragment before you can split it:
