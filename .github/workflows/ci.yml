@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   core:
-    name: icrc167-core (JVM)
+    name: icrc167-core + icrc167-crypto (JVM)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,14 +30,16 @@ jobs:
           gradle-version: "8.11"
 
       - name: Test
-        run: gradle --no-daemon --stacktrace :icrc167-core:test
+        run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test
 
-      - name: Upload test report
+      - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-test-report
-          path: icrc167-core/build/reports/tests/test
+          name: jvm-test-reports
+          path: |
+            icrc167-core/build/reports/tests/test
+            icrc167-crypto/build/reports/tests/test
           retention-days: 7
 
   well-known:

@@ -17,12 +17,37 @@ Swift). This is the Android counterpart.
 |---|---|
 | Request/response codec, `state` and id binding, replay refusal | done, tested |
 | Delegation chain verification (walk, expiry, scope, session-key binding) | done, tested |
-| Ed25519 / P-256 / canister-signature verifiers | not yet — the core takes an injected `SignatureVerifier` |
+| Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
+| Canister-signature verification | not yet — needs IC certificate + BLS |
 | Android module (Custom Tabs, App Links, key storage) | not yet |
 | Demo app | not yet |
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
 table will say so.
+
+## The fragment survives the hand-off
+
+ICRC-167 returns the delegation in the URL fragment and nowhere else, while `intent-filter`
+matching ignores the fragment entirely — so whether Android preserves it decides whether the
+transport is implementable at all. It is measured on an emulator rather than assumed
+(`.github/workflows/fragment-probe.yml`), over a realistic percent-encoded payload:
+
+```
+sent                         379 bytes  sha256 e17b6549…4850
+explicit component start     379 bytes  sha256 e17b6549…4850
+implicit VIEW (link routing) 379 bytes  sha256 e17b6549…4850
+```
+
+The same run also pins down a trap worth stating plainly. `Uri.getFragment()`
+percent-decodes the *whole* fragment before you can split it:
+
+```
+encodedFragment  …&state=s%2Bt%2Fa%3Dte%26x
+getFragment()    …&state=s+t/a=te&x
+```
+
+The `%26` becomes a separator, inventing a parameter that was never sent, and `%2B` becomes
+a `+` that the next decode turns into a space. Parse `encodedFragment`, never `getFragment()`.
 
 ### The specification is a draft
 
