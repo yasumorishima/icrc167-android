@@ -17,6 +17,7 @@ Swift). This is the Android counterpart.
 |---|---|
 | Request/response codec, `state` and id binding, replay refusal | done, tested |
 | Delegation chain verification (walk, expiry, scope, session-key binding) | done, tested |
+| Granted-scope checking against the request | done, tested |
 | Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
 | Canister-signature verification | not yet — needs IC certificate + BLS |
 | Android module (Custom Tabs, App Links, key storage) | not yet |
@@ -24,6 +25,32 @@ Swift). This is the Android counterpart.
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
 table will say so.
+
+Because canister signatures are not verified yet, a real Internet Identity chain is
+currently rejected at hop 0 with `UnsupportedKey` — deliberately a different answer from
+`BadSignature`, so that "the check must be broken" is never the obvious conclusion.
+
+### Scope
+
+Requesting `targets` does not guarantee a scoped delegation. Under ICRC-34 a signer that
+cannot establish trust for the target canisters falls back to an ordinary relying-party
+delegation, which is legitimate and yields a *different principal*. So an unscoped answer is
+reported through `Authenticated.effectiveTargets` rather than refused, while a scope wider
+than the one requested — authority nobody asked for — is rejected.
+
+### The hash is pinned to the specification, not to itself
+
+The bytes a delegation signature covers are `\x1Aic-request-auth-delegation` followed by the
+representation-independent hash of the delegation. Everywhere in a test suite the same
+function produces both the signed and the verified bytes, so a hash that disagreed with the
+IC would pass every round trip while being useless against a replica. The published
+request-id example is checked directly:
+
+```
+hash_of_map({request_type: "call", sender: 0x04, ingress_expiry: 1685570400000000000,
+             canister_id: 0x00000000000004D2, method_name: "hello", arg: "DIDL\x00\xFD*"})
+  = 1d1091364d6bb8a6c16b203ee75467d59ead468f523eb058880ae8ec80e2b101
+```
 
 ## The fragment survives the hand-off
 
