@@ -11,7 +11,9 @@ Swift). This is the Android counterpart.
 
 ## Status
 
-**Early. The protocol core is implemented and tested; the Android layer is not written yet.**
+**Early, and the one piece that matters most is missing.** Everything below the signature
+check is implemented and tested, including on a device — but a real Internet Identity chain
+is rooted in a canister signature, which is not verified yet, so no genuine login completes.
 
 | | |
 |---|---|
@@ -19,9 +21,21 @@ Swift). This is the Android counterpart.
 | Delegation chain verification (walk, expiry, scope, session-key binding) | done, tested |
 | Granted-scope checking against the request | done, tested |
 | Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
-| Canister-signature verification | not yet — needs IC certificate + BLS |
+| Certificate machinery: CBOR reader, state-tree witness | done, tested |
+| Canister-signature verification | not yet — needs BLS12-381 |
 | Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
 | Demo app | not yet |
+
+### Modules
+
+| | |
+|---|---|
+| `icrc167-core` | The transport, delegation chains, principals. Only dependency is `org.json`, and that is `compileOnly` because Android ships it. |
+| `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
+| `icrc167-certificate` | CBOR and the state-tree witness. No dependencies at all. |
+| `icrc167-android` | Custom Tabs, App Links, session keys. |
+
+An app that does not need certificates never pulls them in.
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
 table will say so.
@@ -29,6 +43,15 @@ table will say so.
 Because canister signatures are not verified yet, a real Internet Identity chain is
 currently rejected at hop 0 with `UnsupportedKey` — deliberately a different answer from
 `BadSignature`, so that "the check must be broken" is never the obvious conclusion.
+
+### Where the state tree is pinned
+
+`lookupPath` keeps *absent* and *unknown* apart. Given a witness with a subtree pruned away,
+a path that would have run through it is unproved, not missing; answering "absent" there
+accepts an absence the subnet never signed for. The tests use two published witnesses that
+describe the same state — the second is the first with parts pruned — so they must
+reconstruct to the same root hash, and the same label reads as provably absent in one and
+unknown in the other.
 
 ### Scope
 
