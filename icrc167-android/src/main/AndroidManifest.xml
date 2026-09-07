@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      The library declares nothing of its own. The App Link intent-filter and the
+      assetlinks.json that verifies it belong to the consuming app, because the callback
+      origin is the app's own domain, not this library's.
+    -->
+</manifest>

@@ -13,8 +13,9 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "icrc167-android"
+rootProject.name = "icrc167"
 
 include(":icrc167-core")
 include(":icrc167-crypto")
+include(":icrc167-android")
 include(":probe")

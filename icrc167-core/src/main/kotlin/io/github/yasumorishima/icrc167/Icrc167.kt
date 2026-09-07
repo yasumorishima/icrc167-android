@@ -39,8 +39,14 @@ public sealed interface Icrc167Result {
 public class Icrc167AuthRequest internal constructor(
     private val signerUrl: String,
     private val callback: String,
-    private val requestId: String,
-    private val state: String,
+    /**
+     * The JSON-RPC id and the `state` nonce. Public so that an attempt can outlive the
+     * process: the browser is in the foreground for as long as the user takes to
+     * authenticate, and Android may reclaim us in the meantime. Persist these with
+     * [Icrc167.restoreRequest] rather than losing a sign-in to a background kill.
+     */
+    public val requestId: String,
+    public val state: String,
     sessionPublicKeyDer: ByteArray,
     private val maxTimeToLiveNanos: BigInteger,
     private val targets: List<Principal>?,
@@ -276,6 +282,31 @@ public object Icrc167 {
             targets = targets,
         )
     }
+
+    /**
+     * Rebuilds a pending attempt whose process was killed while the browser was in front.
+     *
+     * The caller is responsible for having stored [requestId] and [state] alongside the
+     * session key; passing values that did not come from a real [delegationRequest] only
+     * guarantees that no callback will ever match.
+     */
+    public fun restoreRequest(
+        callback: String,
+        sessionPublicKeyDer: ByteArray,
+        requestId: String,
+        state: String,
+        signerUrl: String = INTERNET_IDENTITY_URL,
+        maxTimeToLiveNanos: BigInteger = EIGHT_HOURS_NANOS,
+        targets: List<Principal>? = null,
+    ): Icrc167AuthRequest = Icrc167AuthRequest(
+        signerUrl = signerUrl,
+        callback = callback,
+        requestId = requestId,
+        state = state,
+        sessionPublicKeyDer = sessionPublicKeyDer,
+        maxTimeToLiveNanos = maxTimeToLiveNanos,
+        targets = targets,
+    )
 
     private fun nonce(bytes: Int): String {
         val buffer = ByteArray(bytes)

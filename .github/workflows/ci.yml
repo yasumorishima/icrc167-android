@@ -32,6 +32,9 @@ jobs:
       - name: Test
         run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test
 
+      - name: Compile the Android library
+        run: gradle --no-daemon --stacktrace :icrc167-android:assembleDebug
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
