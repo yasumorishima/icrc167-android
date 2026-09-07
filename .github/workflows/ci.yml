@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   core:
-    name: icrc167-core + icrc167-crypto (JVM)
+    name: JVM modules
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
           gradle-version: "8.11"
 
       - name: Test
-        run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test
+        run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test :icrc167-certificate:test
 
       - name: Compile the Android library
         run: gradle --no-daemon --stacktrace :icrc167-android:assembleDebug
