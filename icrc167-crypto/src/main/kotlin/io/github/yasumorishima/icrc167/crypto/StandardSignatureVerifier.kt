@@ -1,5 +1,6 @@
 package io.github.yasumorishima.icrc167.crypto
 
+import io.github.yasumorishima.icrc167.SignatureCheck
 import io.github.yasumorishima.icrc167.SignatureVerifier
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -21,22 +22,35 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * from the payload is how a verifier gets talked into using the wrong one.
  *
  * Canister signatures are **not** handled here: verifying one means verifying an IC state-tree
- * certificate against the root key, which needs BLS and belongs in the agent layer. They are
- * reported as unverifiable rather than quietly accepted.
+ * certificate against the root key, which needs BLS and belongs in the agent layer. They come
+ * back as [SignatureCheck.UNSUPPORTED_KEY] — never as valid, and never confused with a forgery.
+ * A genuine Internet Identity chain is signed at its root by exactly such a key, so this is the
+ * expected answer for hop 0 until certificate verification exists.
  */
 public class StandardSignatureVerifier : SignatureVerifier {
 
-    override fun verify(derPublicKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean {
+    override fun verify(
+        derPublicKey: ByteArray,
+        message: ByteArray,
+        signature: ByteArray,
+    ): SignatureCheck {
         val spki = try {
             SubjectPublicKeyInfo.getInstance(derPublicKey)
         } catch (_: Exception) {
-            return false
+            return SignatureCheck.UNSUPPORTED_KEY
         }
 
         return when (spki.algorithm.algorithm) {
             ED25519 -> verifyEd25519(spki, message, signature)
-            EC_PUBLIC_KEY -> verifyP256(spki, message, signature)
-            else -> false
+            EC_PUBLIC_KEY ->
+                if (isP256(spki.algorithm.parameters)) {
+                    verifyP256(spki, message, signature)
+                } else {
+                    // An EC key on another curve, or one carrying explicit curve parameters.
+                    // WebCrypto emits neither.
+                    SignatureCheck.UNSUPPORTED_KEY
+                }
+            else -> SignatureCheck.UNSUPPORTED_KEY
         }
     }
 
@@ -53,17 +67,18 @@ public class StandardSignatureVerifier : SignatureVerifier {
         spki: SubjectPublicKeyInfo,
         message: ByteArray,
         signature: ByteArray,
-    ): Boolean {
+    ): SignatureCheck {
         val raw = spki.publicKeyData.bytes
-        if (raw.size != ED25519_PUBLIC_KEY_BYTES) return false
-        if (signature.size != ED25519_SIGNATURE_BYTES) return false
+        if (raw.size != ED25519_PUBLIC_KEY_BYTES) return SignatureCheck.UNSUPPORTED_KEY
+        if (signature.size != ED25519_SIGNATURE_BYTES) return SignatureCheck.INVALID
         return try {
-            Ed25519Signer().apply {
+            val ok = Ed25519Signer().apply {
                 init(false, Ed25519PublicKeyParameters(raw, 0))
                 update(message, 0, message.size)
             }.verifySignature(signature)
+            if (ok) SignatureCheck.VALID else SignatureCheck.INVALID
         } catch (_: Exception) {
-            false
+            SignatureCheck.INVALID
         }
     }
 
@@ -76,27 +91,29 @@ public class StandardSignatureVerifier : SignatureVerifier {
         spki: SubjectPublicKeyInfo,
         message: ByteArray,
         signature: ByteArray,
-    ): Boolean {
-        if (!isP256(spki.algorithm.parameters)) return false
-        if (signature.size != P256_SIGNATURE_BYTES) return false
+    ): SignatureCheck {
+        if (signature.size != P256_SIGNATURE_BYTES) return SignatureCheck.INVALID
 
         return try {
-            val curve = CustomNamedCurves.getByName(P256_CURVE) ?: return false
+            val curve = CustomNamedCurves.getByName(P256_CURVE)
+                ?: return SignatureCheck.UNSUPPORTED_KEY
             val point = curve.curve.decodePoint(spki.publicKeyData.bytes)
-            if (!point.isValid) return false
+            // The point at infinity encodes fine but is not a usable public key.
+            if (point.isInfinity || !point.isValid) return SignatureCheck.UNSUPPORTED_KEY
 
             val half = P256_SIGNATURE_BYTES / 2
             val r = BigInteger(1, signature.copyOfRange(0, half))
             val s = BigInteger(1, signature.copyOfRange(half, P256_SIGNATURE_BYTES))
-            if (r.signum() <= 0 || s.signum() <= 0) return false
-            if (r >= curve.n || s >= curve.n) return false
+            if (r.signum() <= 0 || s.signum() <= 0) return SignatureCheck.INVALID
+            if (r >= curve.n || s >= curve.n) return SignatureCheck.INVALID
 
             val domain = ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
             val digest = MessageDigest.getInstance("SHA-256").digest(message)
-            ECDSASigner().apply { init(false, ECPublicKeyParameters(point, domain)) }
+            val ok = ECDSASigner().apply { init(false, ECPublicKeyParameters(point, domain)) }
                 .verifySignature(digest, r, s)
+            if (ok) SignatureCheck.VALID else SignatureCheck.INVALID
         } catch (_: Exception) {
-            false
+            SignatureCheck.INVALID
         }
     }
 

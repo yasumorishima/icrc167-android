@@ -185,6 +185,9 @@ class Icrc167Test {
         val result = request.complete("$callback#$fragment")
 
         assertIs<Icrc167Result.Rejected>(result)
+        // Without naming the reason this passes even if duplicates are silently resolved:
+        // first-wins would fail on the id, last-wins on the state.
+        assertTrue(result.reason.contains("duplicate"))
     }
 
     @Test

@@ -3,13 +3,25 @@ package io.github.yasumorishima.icrc167
 import java.math.BigInteger
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** Outcome of a signer round-trip. The chain is *not* verified here — see [DelegationChainVerifier]. */
 public sealed interface Icrc167Result {
-    /** The signer returned a chain. It still has to be verified before it is trusted. */
-    public data class Authenticated(val chain: DelegationChain) : Icrc167Result
+    /**
+     * The signer returned a chain. It still has to be verified before it is trusted.
+     *
+     * [effectiveTargets] is the intersection of the scopes the chain carries, or `null` when
+     * the chain is unscoped. Requesting targets does **not** guarantee a scoped answer: by
+     * ICRC-34 a signer that cannot establish trust for the target canisters falls back to an
+     * ordinary relying-party delegation. That is a legitimate outcome and it changes the
+     * principal, so it is reported rather than hidden or refused.
+     */
+    public data class Authenticated(
+        val chain: DelegationChain,
+        val effectiveTargets: List<Principal>?,
+    ) : Icrc167Result
 
     /** The signer answered with a JSON-RPC error, e.g. the user refused. */
     public data class SignerError(val code: Int, val message: String) : Icrc167Result
@@ -34,7 +46,7 @@ public class Icrc167AuthRequest internal constructor(
     private val targets: List<Principal>?,
 ) {
     private val sessionPublicKey = sessionPublicKeyDer.copyOf()
-    private var consumed = false
+    private val consumed = AtomicBoolean(false)
 
     /** The URL to open in the browser. */
     public fun authorizationUrl(): String {
@@ -53,7 +65,7 @@ public class Icrc167AuthRequest internal constructor(
             params.put("targets", JSONArray(targets.map { it.toText() }))
         }
         return JSONObject()
-            .put("jsonrpc", "2.0")
+            .put("jsonrpc", JSON_RPC_VERSION)
             .put("id", requestId)
             .put("method", "icrc34_delegation")
             .put("params", params)
@@ -63,19 +75,23 @@ public class Icrc167AuthRequest internal constructor(
      * Validates the URL the signer navigated back to and extracts the chain.
      *
      * Everything that binds this response to *this* request is checked here: the callback URL
-     * itself, the `state` nonce, and the JSON-RPC id.
+     * itself, the `state` nonce, the JSON-RPC id, and that the granted scope does not exceed
+     * what was asked for.
      */
-    public fun complete(callbackUri: String): Icrc167Result {
-        if (consumed) return Icrc167Result.Rejected("this request has already been completed")
-
+    public fun complete(
+        callbackUri: String,
+        nowNanos: BigInteger = systemNanos(),
+    ): Icrc167Result {
         val separator = callbackUri.indexOf('#')
         if (separator < 0) return Icrc167Result.Rejected("callback carries no fragment")
         val base = callbackUri.substring(0, separator)
         val fragment = callbackUri.substring(separator + 1)
 
-        // The signer must return to the exact URL we declared. Comparing the whole prefix
-        // also rules out a response arriving on a different declared callback.
-        if (base != callback) return Icrc167Result.Rejected("callback URL does not match the request")
+        // The signer must return to the URL we declared. Scheme and host are compared
+        // case-insensitively because RFC 3986 says they are; the rest is compared exactly.
+        if (!sameUrl(base, callback)) {
+            return Icrc167Result.Rejected("callback URL does not match the request")
+        }
 
         val params = try {
             Fragment.decode(fragment)
@@ -93,27 +109,38 @@ public class Icrc167AuthRequest internal constructor(
 
         // Only mark the attempt spent once the response is provably ours, so that a stray or
         // forged callback cannot burn a pending login.
-        consumed = true
+        if (!consumed.compareAndSet(false, true)) {
+            return Icrc167Result.Rejected("this request has already been completed")
+        }
 
         return try {
-            parseResponse(message)
+            parseResponse(message, nowNanos)
         } catch (e: Exception) {
             Icrc167Result.Rejected("malformed response: ${e.message}")
         }
     }
 
-    private fun parseResponse(message: String): Icrc167Result {
+    private fun parseResponse(message: String, nowNanos: BigInteger): Icrc167Result {
         val trimmed = message.trimStart()
         val response: JSONObject = if (trimmed.startsWith("[")) {
             val batch = JSONArray(message)
-            (0 until batch.length())
+            val matching = (0 until batch.length())
                 .map { batch.getJSONObject(it) }
-                .firstOrNull { it.optString("id") == requestId }
-                ?: return Icrc167Result.Rejected("no response in batch matches our request id")
+                .filter { it.optString("id") == requestId }
+            // More than one answer to the same request is malformed, and picking either one
+            // means letting the sender choose which we act on.
+            when (matching.size) {
+                1 -> matching.single()
+                0 -> return Icrc167Result.Rejected("no response in batch matches our request id")
+                else -> return Icrc167Result.Rejected("batch contains multiple responses for our request id")
+            }
         } else {
             JSONObject(message)
         }
 
+        if (response.optString("jsonrpc") != JSON_RPC_VERSION) {
+            return Icrc167Result.Rejected("response is not JSON-RPC $JSON_RPC_VERSION")
+        }
         if (response.optString("id") != requestId) {
             return Icrc167Result.Rejected("response id does not match this request")
         }
@@ -146,11 +173,46 @@ public class Icrc167AuthRequest internal constructor(
                 signature = decoder.decode(entry.getString("signature")),
             )
         }
-        return Icrc167Result.Authenticated(DelegationChain(rootPublicKey, delegations))
+
+        // A signer may shorten the lifetime but must not extend it. The tolerance absorbs
+        // clock skew between us and the signer, not a materially longer grant.
+        val latestAcceptable = nowNanos + maxTimeToLiveNanos + CLOCK_SKEW_NANOS
+        delegations.forEach { hop ->
+            if (hop.delegation.expiration > latestAcceptable) {
+                return Icrc167Result.Rejected("delegation outlives the requested maxTimeToLive")
+            }
+        }
+
+        val scopes = delegations.mapNotNull { it.delegation.targets }
+        if (targets != null) {
+            // Never accept more authority than was asked for. (Receiving *less* — including
+            // an unscoped relying-party delegation — is a legitimate ICRC-34 outcome.)
+            scopes.forEach { scope ->
+                if (!targets.containsAll(scope)) {
+                    return Icrc167Result.Rejected("delegation scope exceeds the requested targets")
+                }
+            }
+        }
+        val effective = scopes.reduceOrNull { acc, next -> acc.filter { it in next } }
+
+        return Icrc167Result.Authenticated(
+            chain = DelegationChain(rootPublicKey, delegations),
+            effectiveTargets = effective,
+        )
     }
 
     /** The session key this request is bound to; the chain must terminate at it. */
     public fun sessionPublicKeyDer(): ByteArray = sessionPublicKey.copyOf()
+
+    private fun sameUrl(received: String, declared: String): Boolean =
+        normaliseOrigin(received) == normaliseOrigin(declared)
+
+    private fun normaliseOrigin(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return url
+        val authorityEnd = url.indexOf('/', schemeEnd + 3).let { if (it < 0) url.length else it }
+        return url.substring(0, authorityEnd).lowercase() + url.substring(authorityEnd)
+    }
 
     private fun constantTimeEquals(a: String, b: String): Boolean {
         val left = a.toByteArray(Charsets.UTF_8)
@@ -160,7 +222,16 @@ public class Icrc167AuthRequest internal constructor(
         for (i in left.indices) diff = diff or (left[i].toInt() xor right[i].toInt())
         return diff == 0
     }
+
+    private companion object {
+        const val JSON_RPC_VERSION = "2.0"
+        val CLOCK_SKEW_NANOS: BigInteger = BigInteger.valueOf(5L * 60 * 1_000_000_000)
+    }
 }
+
+/** Nanoseconds since the epoch, at millisecond resolution — what the IC expresses times in. */
+public fun systemNanos(): BigInteger =
+    BigInteger.valueOf(System.currentTimeMillis()).multiply(BigInteger.valueOf(1_000_000))
 
 public object Icrc167 {
 
@@ -175,7 +246,8 @@ public object Icrc167 {
      * @param callback must be listed verbatim in `/.well-known/ii-auth-callbacks` on its own
      *   origin, and must not carry a fragment — the signer appends its own.
      * @param targets omit to receive the ordinary relying-party principal. Supplying targets
-     *   can yield a *different* principal (an ICRC-34 account delegation).
+     *   can yield a *different* principal (an ICRC-34 account delegation), and does not
+     *   guarantee a scoped answer; check `Authenticated.effectiveTargets`.
      */
     public fun delegationRequest(
         callback: String,
@@ -187,6 +259,10 @@ public object Icrc167 {
         require(!callback.contains('#')) { "the callback URL must not contain a fragment" }
         require(callback.startsWith("https://")) { "the callback URL must be https" }
         require(!signerUrl.contains('#')) { "the signer URL must not contain a fragment" }
+        // Over http, anyone on the path can inject script into the signer page and read the
+        // state out of location.hash, then answer with a chain for an identity of their
+        // choosing. The request would still look correct to us.
+        require(signerUrl.startsWith("https://")) { "the signer URL must be https" }
         require(targets == null || targets.isNotEmpty()) {
             "targets must be null or non-empty; an empty list means something different"
         }

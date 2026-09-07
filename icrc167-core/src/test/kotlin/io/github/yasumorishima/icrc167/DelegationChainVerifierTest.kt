@@ -134,6 +134,62 @@ class DelegationChainVerifierTest {
     }
 
     @Test
+    fun `rejects a hop signed by the root rather than by the key before it`() {
+        // Proves the walk advances the signing key. A verifier that kept using the root
+        // would accept this chain, and every other test here would still pass.
+        val root = TestKey.generate()
+        val intermediate = TestKey.generate()
+        val session = TestKey.generate()
+        val expiration = nanosFromNow(3600)
+
+        val first = Delegation(intermediate.der, expiration)
+        val second = Delegation(session.der, expiration)
+        val chain = DelegationChain(
+            root.der,
+            listOf(
+                SignedDelegation(first, root.sign(first.signableBytes())),
+                SignedDelegation(second, root.sign(second.signableBytes())),
+            ),
+        )
+
+        val result = verifier.verify(chain, session.der, nowNanos())
+
+        assertIs<ChainVerification.Invalid>(result)
+        assertEquals(ChainRejection.BadSignature(1), result.reason)
+    }
+
+    @Test
+    fun `treats an expiration exactly at the current instant as expired`() {
+        val root = TestKey.generate()
+        val session = TestKey.generate()
+        val instant = nanosFromNow(3600)
+        val chain = buildChain(root, listOf(session), expiration = instant)
+
+        val result = verifier.verify(chain, session.der, instant)
+
+        assertIs<ChainVerification.Invalid>(result)
+        assertIs<ChainRejection.Expired>(result.reason)
+    }
+
+    @Test
+    fun `reports an unsupported key separately from a bad signature`() {
+        // A real Internet Identity chain is signed at its root by a canister signature, so
+        // this is the answer a verifier without certificate support gives for hop 0. Calling
+        // it a forgery would invite somebody to conclude the check is broken and drop it.
+        val root = TestKey.generate()
+        val session = TestKey.generate()
+        val chain = buildChain(root, listOf(session))
+        val cannotCheck = DelegationChainVerifier(
+            SignatureVerifier { _, _, _ -> SignatureCheck.UNSUPPORTED_KEY },
+        )
+
+        val result = cannotCheck.verify(chain, session.der, nowNanos())
+
+        assertIs<ChainVerification.Invalid>(result)
+        assertEquals(ChainRejection.UnsupportedKey(0), result.reason)
+    }
+
+    @Test
     fun `an unscoped delegation is not the same as an empty scope`() {
         // `targets: []` and no `targets` key hash differently, so they must not collide.
         val key = TestKey.generate()

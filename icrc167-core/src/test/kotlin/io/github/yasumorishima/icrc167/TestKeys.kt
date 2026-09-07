@@ -46,17 +46,18 @@ internal class TestKey private constructor(
     }
 }
 
-/** Verifies Ed25519 SPKI keys; anything else is treated as unverifiable. */
+/** Verifies Ed25519 SPKI keys; anything else is reported as unsupported, not as a forgery. */
 internal val ed25519Verifier = SignatureVerifier { der, message, signature ->
-    if (der.size != TestKey.SPKI_PREFIX.size + 32) return@SignatureVerifier false
-    if (!der.copyOfRange(0, TestKey.SPKI_PREFIX.size).contentEquals(TestKey.SPKI_PREFIX)) {
-        return@SignatureVerifier false
+    if (der.size != TestKey.SPKI_PREFIX.size + 32 ||
+        !der.copyOfRange(0, TestKey.SPKI_PREFIX.size).contentEquals(TestKey.SPKI_PREFIX)
+    ) {
+        return@SignatureVerifier SignatureCheck.UNSUPPORTED_KEY
     }
     val raw = der.copyOfRange(TestKey.SPKI_PREFIX.size, der.size)
     val verifier = Ed25519Signer()
     verifier.init(false, Ed25519PublicKeyParameters(raw, 0))
     verifier.update(message, 0, message.size)
-    verifier.verifySignature(signature)
+    if (verifier.verifySignature(signature)) SignatureCheck.VALID else SignatureCheck.INVALID
 }
 
 internal fun nanosFromNow(seconds: Long): BigInteger =

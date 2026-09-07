@@ -2,6 +2,23 @@ package io.github.yasumorishima.icrc167
 
 import java.math.BigInteger
 
+/** The outcome of checking one signature. */
+public enum class SignatureCheck {
+    VALID,
+    INVALID,
+
+    /**
+     * The key names a scheme this verifier cannot check at all — an IC canister signature,
+     * say, which needs a state-tree certificate and BLS.
+     *
+     * Distinct from [INVALID] on purpose. A real Internet Identity chain is signed at its
+     * root by a canister signature, so a verifier that only knows Ed25519 and P-256 reports
+     * this for every genuine login. Calling that "bad signature" invites somebody to decide
+     * the check is broken and remove it.
+     */
+    UNSUPPORTED_KEY,
+}
+
 /**
  * Verifies one signature. Implementations dispatch on the SPKI algorithm identifier of
  * [derPublicKey]: Ed25519, ECDSA P-256 (IEEE P1363 `r||s`, as WebCrypto produces), or an
@@ -11,7 +28,11 @@ import java.math.BigInteger
  * synthetic chains.
  */
 public fun interface SignatureVerifier {
-    public fun verify(derPublicKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean
+    public fun verify(
+        derPublicKey: ByteArray,
+        message: ByteArray,
+        signature: ByteArray,
+    ): SignatureCheck
 }
 
 /** Why a chain was rejected. Never surfaced to the user as-is; it is for logs and tests. */
@@ -20,6 +41,7 @@ public sealed interface ChainRejection {
     public data class TooLong(val length: Int, val max: Int) : ChainRejection
     public data class Expired(val index: Int, val expiration: BigInteger, val now: BigInteger) : ChainRejection
     public data class BadSignature(val index: Int) : ChainRejection
+    public data class UnsupportedKey(val index: Int) : ChainRejection
     public data class SessionKeyMismatch(val detail: String = "chain does not end at our session key") : ChainRejection
     public data class TargetNotPermitted(val target: Principal) : ChainRejection
 }
@@ -64,12 +86,18 @@ public class DelegationChainVerifier(
                     ChainRejection.Expired(index, signed.delegation.expiration, nowNanos),
                 )
             }
-            val ok = signatureVerifier.verify(
+            val check = signatureVerifier.verify(
                 derPublicKey = signingKey,
                 message = signed.delegation.signableBytes(),
                 signature = signed.signature,
             )
-            if (!ok) return ChainVerification.Invalid(ChainRejection.BadSignature(index))
+            when (check) {
+                SignatureCheck.VALID -> Unit
+                SignatureCheck.INVALID ->
+                    return ChainVerification.Invalid(ChainRejection.BadSignature(index))
+                SignatureCheck.UNSUPPORTED_KEY ->
+                    return ChainVerification.Invalid(ChainRejection.UnsupportedKey(index))
+            }
             signingKey = signed.delegation.pubkey
         }
 

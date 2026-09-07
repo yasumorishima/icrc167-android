@@ -5,6 +5,7 @@ import io.github.yasumorishima.icrc167.Delegation
 import io.github.yasumorishima.icrc167.DelegationChain
 import io.github.yasumorishima.icrc167.DelegationChainVerifier
 import io.github.yasumorishima.icrc167.Principal
+import io.github.yasumorishima.icrc167.SignatureCheck
 import io.github.yasumorishima.icrc167.SignedDelegation
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -21,8 +22,9 @@ import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.crypto.ec.CustomNamedCurves
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
-import org.bouncycastle.crypto.params.ECNamedDomainParameters
+import org.bouncycastle.crypto.params.ECDomainParameters
 import org.bouncycastle.crypto.params.ECKeyGenerationParameters
+import org.bouncycastle.crypto.params.ECNamedDomainParameters
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters
 import org.bouncycastle.crypto.params.ECPublicKeyParameters
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
@@ -43,36 +45,45 @@ class StandardSignatureVerifierTest {
     @Test
     fun `accepts a valid Ed25519 signature`() {
         val key = Ed25519TestKey()
-        assertTrue(verifier.verify(key.der, message, key.sign(message)))
+        assertEquals(SignatureCheck.VALID, verifier.verify(key.der, message, key.sign(message)))
     }
 
     @Test
     fun `rejects an Ed25519 signature over a different message`() {
         val key = Ed25519TestKey()
-        assertFalse(verifier.verify(key.der, message, key.sign("something else".toByteArray())))
+        assertEquals(
+            SignatureCheck.INVALID,
+            verifier.verify(key.der, message, key.sign("something else".toByteArray())),
+        )
     }
 
     @Test
     fun `rejects an Ed25519 signature verified against another key`() {
         val signer = Ed25519TestKey()
         val other = Ed25519TestKey()
-        assertFalse(verifier.verify(other.der, message, signer.sign(message)))
+        assertEquals(
+            SignatureCheck.INVALID,
+            verifier.verify(other.der, message, signer.sign(message)),
+        )
     }
 
     // ---- ECDSA P-256 -------------------------------------------------------------
 
     @Test
-    fun `accepts a valid P-256 signature in IEEE P1363 form`() {
-        val key = P256TestKey()
-        assertTrue(verifier.verify(key.der, message, key.signP1363(message)))
+    fun `recognises Ed25519 and P-256 keys as supported`() {
+        // The negative tests pass just as well when a key is not recognised at all, so
+        // assert recognition on its own.
+        assertTrue(verifier.supports(Ed25519TestKey().der))
+        assertTrue(verifier.supports(P256TestKey().der))
     }
 
     @Test
-    fun `recognises Ed25519 and P-256 keys as supported`() {
-        // The negative tests below pass just as well when a key is not recognised at all,
-        // so assert recognition on its own.
-        assertTrue(verifier.supports(Ed25519TestKey().der))
-        assertTrue(verifier.supports(P256TestKey().der))
+    fun `accepts a valid P-256 signature in IEEE P1363 form`() {
+        val key = P256TestKey()
+        assertEquals(
+            SignatureCheck.VALID,
+            verifier.verify(key.der, message, key.signP1363(message)),
+        )
     }
 
     @Test
@@ -80,34 +91,73 @@ class StandardSignatureVerifierTest {
         // WebCrypto — and therefore Internet Identity — emits r||s. Accepting DER as well
         // would mean guessing the encoding from attacker-controlled bytes.
         val key = P256TestKey()
-        assertFalse(verifier.verify(key.der, message, key.signDer(message)))
+        assertEquals(
+            SignatureCheck.INVALID,
+            verifier.verify(key.der, message, key.signDer(message)),
+        )
     }
 
     @Test
-    fun `rejects a P-256 signature with r or s out of range`() {
+    fun `rejects a P-256 signature made by another key`() {
+        val signer = P256TestKey()
+        val other = P256TestKey()
+        assertEquals(
+            SignatureCheck.INVALID,
+            verifier.verify(other.der, message, signer.signP1363(message)),
+        )
+    }
+
+    @Test
+    fun `rejects a P-256 signature over a different message`() {
         val key = P256TestKey()
-        val zeroed = ByteArray(64)
-        assertFalse(verifier.verify(key.der, message, zeroed))
+        assertEquals(
+            SignatureCheck.INVALID,
+            verifier.verify(key.der, message, key.signP1363("elsewhere".toByteArray())),
+        )
+    }
+
+    @Test
+    fun `rejects a P-256 signature whose r or s is out of range`() {
+        val key = P256TestKey()
+        assertEquals(SignatureCheck.INVALID, verifier.verify(key.der, message, ByteArray(64)))
+    }
+
+    @Test
+    fun `refuses a P-256 key carrying explicit curve parameters`() {
+        // Valid X.509, but not an encoding WebCrypto produces. Reported as unsupported
+        // rather than invalid, so it can never be mistaken for a failed signature check.
+        val key = P256TestKey(named = false)
+        assertFalse(verifier.supports(key.der))
+        assertEquals(
+            SignatureCheck.UNSUPPORTED_KEY,
+            verifier.verify(key.der, message, key.signP1363(message)),
+        )
     }
 
     // ---- dispatch ----------------------------------------------------------------
 
     @Test
-    fun `refuses a key whose algorithm it does not know`() {
-        // An IC canister signature key lands here: it must be reported as unverifiable
-        // rather than silently accepted, because checking one needs a certificate.
-        val unknown = SubjectPublicKeyInfo(
+    fun `reports a canister signature key as unsupported, not as a forgery`() {
+        // This is the key at the root of every real Internet Identity chain. Calling it a
+        // bad signature would invite somebody to conclude the check itself is broken.
+        val canisterSignatureKey = SubjectPublicKeyInfo(
             AlgorithmIdentifier(ASN1ObjectIdentifier("1.3.6.1.4.1.56387.1.2"), DERSequence()),
             ByteArray(32),
         ).encoded
 
-        assertFalse(verifier.supports(unknown))
-        assertFalse(verifier.verify(unknown, message, ByteArray(64)))
+        assertFalse(verifier.supports(canisterSignatureKey))
+        assertEquals(
+            SignatureCheck.UNSUPPORTED_KEY,
+            verifier.verify(canisterSignatureKey, message, ByteArray(64)),
+        )
     }
 
     @Test
     fun `refuses malformed key bytes instead of throwing`() {
-        assertFalse(verifier.verify(byteArrayOf(1, 2, 3), message, ByteArray(64)))
+        assertEquals(
+            SignatureCheck.UNSUPPORTED_KEY,
+            verifier.verify(byteArrayOf(1, 2, 3), message, ByteArray(64)),
+        )
     }
 
     // ---- the shape Internet Identity actually returns -----------------------------
@@ -119,9 +169,7 @@ class StandardSignatureVerifierTest {
         val root = Ed25519TestKey()
         val intermediate = P256TestKey()
         val session = Ed25519TestKey()
-        val expiration = BigInteger.valueOf(System.currentTimeMillis())
-            .multiply(BigInteger.valueOf(1_000_000))
-            .add(BigInteger.valueOf(3_600_000_000_000L))
+        val expiration = nowNanos().add(BigInteger.valueOf(3_600_000_000_000L))
 
         val first = Delegation(intermediate.der, expiration)
         val second = Delegation(session.der, expiration)
@@ -133,15 +181,14 @@ class StandardSignatureVerifierTest {
             ),
         )
 
-        val result = DelegationChainVerifier(verifier).verify(
-            chain,
-            session.der,
-            BigInteger.valueOf(System.currentTimeMillis()).multiply(BigInteger.valueOf(1_000_000)),
-        )
+        val result = DelegationChainVerifier(verifier).verify(chain, session.der, nowNanos())
 
         assertIs<ChainVerification.Valid>(result)
         assertEquals(Principal.selfAuthenticating(root.der), result.principal)
     }
+
+    private fun nowNanos(): BigInteger =
+        BigInteger.valueOf(System.currentTimeMillis()).multiply(BigInteger.valueOf(1_000_000))
 }
 
 private class Ed25519TestKey {
@@ -164,14 +211,19 @@ private class Ed25519TestKey {
     }.generateSignature()
 }
 
-private class P256TestKey {
+/**
+ * @param named when true the SubjectPublicKeyInfo names the curve by OID, which is what
+ *   WebCrypto emits. Given plain [ECDomainParameters] instead, Bouncy Castle writes the whole
+ *   curve out as explicit parameters — an encoding this library deliberately refuses, and one
+ *   a fixture must be able to produce in order to test that refusal.
+ */
+private class P256TestKey(named: Boolean = true) {
     private val curve = CustomNamedCurves.getByName("secp256r1")
-
-    // Named domain parameters, not plain ECDomainParameters. Given the latter, Bouncy Castle
-    // writes the curve into the SubjectPublicKeyInfo as explicit parameters rather than as the
-    // prime256v1 OID — an encoding WebCrypto never emits, so a fixture built that way would
-    // not resemble the keys Internet Identity actually returns.
-    private val domain = ECNamedDomainParameters(ASN1ObjectIdentifier("1.2.840.10045.3.1.7"), curve)
+    private val domain: ECDomainParameters = if (named) {
+        ECNamedDomainParameters(ASN1ObjectIdentifier("1.2.840.10045.3.1.7"), curve)
+    } else {
+        ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
+    }
     private val privateKey: ECPrivateKeyParameters
     private val publicKey: ECPublicKeyParameters
 
@@ -208,7 +260,8 @@ private class P256TestKey {
     }
 
     private fun pad32(value: BigInteger): ByteArray {
-        val bytes = value.toByteArray().let { if (it.size > 32) it.copyOfRange(it.size - 32, it.size) else it }
+        val bytes = value.toByteArray()
+            .let { if (it.size > 32) it.copyOfRange(it.size - 32, it.size) else it }
         return ByteArray(32 - bytes.size) + bytes
     }
 }
