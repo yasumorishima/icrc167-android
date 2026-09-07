@@ -21,7 +21,7 @@ import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.crypto.ec.CustomNamedCurves
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
-import org.bouncycastle.crypto.params.ECDomainParameters
+import org.bouncycastle.crypto.params.ECNamedDomainParameters
 import org.bouncycastle.crypto.params.ECKeyGenerationParameters
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters
 import org.bouncycastle.crypto.params.ECPublicKeyParameters
@@ -166,7 +166,12 @@ private class Ed25519TestKey {
 
 private class P256TestKey {
     private val curve = CustomNamedCurves.getByName("secp256r1")
-    private val domain = ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
+
+    // Named domain parameters, not plain ECDomainParameters. Given the latter, Bouncy Castle
+    // writes the curve into the SubjectPublicKeyInfo as explicit parameters rather than as the
+    // prime256v1 OID — an encoding WebCrypto never emits, so a fixture built that way would
+    // not resemble the keys Internet Identity actually returns.
+    private val domain = ECNamedDomainParameters(ASN1ObjectIdentifier("1.2.840.10045.3.1.7"), curve)
     private val privateKey: ECPrivateKeyParameters
     private val publicKey: ECPublicKeyParameters
 

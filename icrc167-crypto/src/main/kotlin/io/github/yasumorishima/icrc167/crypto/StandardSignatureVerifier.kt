@@ -106,6 +106,10 @@ public class StandardSignatureVerifier : SignatureVerifier {
      * so the runtime type is not necessarily [ASN1ObjectIdentifier] even though it encodes
      * as one. Casting instead of unwrapping makes every P-256 key look unsupported, which
      * fails as a silent rejection rather than an error.
+     *
+     * Only the named-curve encoding is accepted. A key carrying explicit curve parameters is
+     * refused: WebCrypto does not produce one, so anything that does is not a key this
+     * transport should be honouring.
      */
     private fun isP256(parameters: ASN1Encodable?): Boolean =
         parameters?.toASN1Primitive() == PRIME256V1
