@@ -1,0 +1,53 @@
+name: Fragment probe
+
+# ICRC-167 returns the delegation only in the URL fragment. Before building anything on top
+# of that, measure on a real Android system that the fragment survives the App Link hand-off.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "probe/**"
+      - "scripts/fragment-probe.sh"
+      - ".github/workflows/fragment-probe.yml"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: "Why this run was started"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Fragment survives an App Link
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the probe on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          script: bash scripts/fragment-probe.sh

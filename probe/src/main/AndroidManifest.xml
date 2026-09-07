@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A deliberately minimal app whose only job is to report what Android actually delivers
+  to an App Link. ICRC-167 carries the delegation in the URL fragment, so the question
+  "does the fragment survive the hand-off" decides whether the whole transport works on
+  Android. This app answers it with a measurement instead of an assumption.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:label="ICRC-167 probe">
+        <activity
+            android:name=".ProbeActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!--
+                  Note the filter matches on scheme/host/path only: the fragment is not part
+                  of intent-filter matching at all. That is exactly why it is worth checking
+                  whether it is still present on the Intent that arrives.
+                -->
+                <data
+                    android:scheme="https"
+                    android:host="icrc167-probe.invalid"
+                    android:pathPrefix="/cb" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
