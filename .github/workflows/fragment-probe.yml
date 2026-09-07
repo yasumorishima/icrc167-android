@@ -1,14 +1,13 @@
-name: Fragment probe
+name: Device tests
 
-# ICRC-167 returns the delegation only in the URL fragment. Before building anything on top
-# of that, measure on a real Android system that the fragment survives the App Link hand-off.
+# Two things that can only be established on a real Android system:
+#   1. the URL fragment survives an App Link hand-off — ICRC-167 returns the delegation
+#      there and nowhere else, while intent-filter matching ignores the fragment entirely;
+#   2. the library completes a whole return trip, including being killed while the browser
+#      would be in the foreground.
 on:
   push:
     branches: [main]
-    paths:
-      - "probe/**"
-      - "scripts/fragment-probe.sh"
-      - ".github/workflows/fragment-probe.yml"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -20,10 +19,10 @@ permissions:
   contents: read
 
 jobs:
-  probe:
-    name: Fragment survives an App Link
+  device:
+    name: Fragment probe and authentication round trip
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -43,11 +42,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run the probe on an emulator
+      - name: Run both probes on one emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          script: bash scripts/fragment-probe.sh
+          script: |
+            bash scripts/fragment-probe.sh
+            bash scripts/auth-roundtrip.sh

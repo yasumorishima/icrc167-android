@@ -24,3 +24,7 @@ android {
 kotlin {
     jvmToolchain(17)
 }
+
+dependencies {
+    implementation(project(":icrc167-android"))
+}

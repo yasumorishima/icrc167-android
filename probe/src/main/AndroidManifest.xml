@@ -28,6 +28,22 @@
                     android:pathPrefix="/cb" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".AuthProbeActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="icrc167-probe.invalid"
+                    android:pathPrefix="/auth" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

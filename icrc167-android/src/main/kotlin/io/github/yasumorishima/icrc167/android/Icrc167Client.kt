@@ -51,10 +51,21 @@ public class Icrc167Client(
         application.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     /**
+     * A started attempt. The identifiers are exposed because an app that opens the browser
+     * itself, or that wants to log what it asked for, otherwise has no way to see them.
+     */
+    public class Pending internal constructor(
+        public val authorizationUrl: String,
+        public val requestId: String,
+        public val state: String,
+        public val sessionPublicKeyDer: ByteArray,
+    )
+
+    /**
      * Starts an attempt and returns the URL to open. Prefer [launch] unless the app wants to
      * open the browser itself.
      */
-    public fun beginAuthentication(targets: List<Principal>? = null): String {
+    public fun beginAuthentication(targets: List<Principal>? = null): Pending {
         val key = keys.loadOrCreate()
         val request = Icrc167.delegationRequest(
             callback = callbackUrl,
@@ -70,15 +81,20 @@ public class Icrc167Client(
             .putString(PENDING_STATE, request.state)
             .putString(PENDING_TARGETS, targets?.joinToString(",") { it.toText() })
             .apply()
-        return request.authorizationUrl()
+        return Pending(
+            authorizationUrl = request.authorizationUrl(),
+            requestId = request.requestId,
+            state = request.state,
+            sessionPublicKeyDer = key.publicKeyDer,
+        )
     }
 
     public fun launch(context: Context, targets: List<Principal>? = null) {
-        val url = beginAuthentication(targets)
+        val pending = beginAuthentication(targets)
         CustomTabsIntent.Builder()
             .setShowTitle(true)
             .build()
-            .launchUrl(context, Uri.parse(url))
+            .launchUrl(context, Uri.parse(pending.authorizationUrl))
     }
 
     /** Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. */
