@@ -4,15 +4,13 @@ import io.github.yasumorishima.icrc167.SignatureVerifier
 import java.math.BigInteger
 import java.security.MessageDigest
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
-import org.bouncycastle.asn1.edec.EdECObjectIdentifiers
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
-import org.bouncycastle.asn1.x9.X9ObjectIdentifiers
+import org.bouncycastle.crypto.ec.CustomNamedCurves
 import org.bouncycastle.crypto.params.ECDomainParameters
 import org.bouncycastle.crypto.params.ECPublicKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.ECDSASigner
 import org.bouncycastle.crypto.signers.Ed25519Signer
-import org.bouncycastle.crypto.ec.CustomNamedCurves
 
 /**
  * Verifies the delegation signature schemes Internet Identity actually returns.
@@ -35,8 +33,8 @@ public class StandardSignatureVerifier : SignatureVerifier {
         }
 
         return when (spki.algorithm.algorithm) {
-            EdECObjectIdentifiers.id_Ed25519 -> verifyEd25519(spki, message, signature)
-            X9ObjectIdentifiers.id_ecPublicKey -> verifyP256(spki, message, signature)
+            ED25519 -> verifyEd25519(spki, message, signature)
+            EC_PUBLIC_KEY -> verifyP256(spki, message, signature)
             else -> false
         }
     }
@@ -44,8 +42,8 @@ public class StandardSignatureVerifier : SignatureVerifier {
     /** True when [derPublicKey] names a scheme this verifier can check at all. */
     public fun supports(derPublicKey: ByteArray): Boolean = try {
         val algorithm = SubjectPublicKeyInfo.getInstance(derPublicKey).algorithm
-        algorithm.algorithm == EdECObjectIdentifiers.id_Ed25519 ||
-            (algorithm.algorithm == X9ObjectIdentifiers.id_ecPublicKey && isP256(algorithm.parameters))
+        algorithm.algorithm == ED25519 ||
+            (algorithm.algorithm == EC_PUBLIC_KEY && isP256(algorithm.parameters))
     } catch (_: Exception) {
         false
     }
@@ -82,17 +80,17 @@ public class StandardSignatureVerifier : SignatureVerifier {
         if (signature.size != P256_SIGNATURE_BYTES) return false
 
         return try {
-            val curve = CustomNamedCurves.getByName(P256_CURVE)
+            val curve = CustomNamedCurves.getByName(P256_CURVE) ?: return false
             val point = curve.curve.decodePoint(spki.publicKeyData.bytes)
             if (!point.isValid) return false
 
-            val domain = ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
             val half = P256_SIGNATURE_BYTES / 2
             val r = BigInteger(1, signature.copyOfRange(0, half))
             val s = BigInteger(1, signature.copyOfRange(half, P256_SIGNATURE_BYTES))
             if (r.signum() <= 0 || s.signum() <= 0) return false
             if (r >= curve.n || s >= curve.n) return false
 
+            val domain = ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
             val digest = MessageDigest.getInstance("SHA-256").digest(message)
             ECDSASigner().apply { init(false, ECPublicKeyParameters(point, domain)) }
                 .verifySignature(digest, r, s)
@@ -102,10 +100,22 @@ public class StandardSignatureVerifier : SignatureVerifier {
     }
 
     private fun isP256(parameters: Any?): Boolean =
-        (parameters as? ASN1ObjectIdentifier) == X9ObjectIdentifiers.prime256v1
+        (parameters as? ASN1ObjectIdentifier) == PRIME256V1
 
     private companion object {
-        const val P256_CURVE = "P-256"
+        // Spelled out rather than taken from a library constant: these OIDs are part of the
+        // wire format being implemented, and the tests below encode real keys with an
+        // independent implementation, so a wrong value here fails loudly.
+        /** id-Ed25519, RFC 8410. */
+        val ED25519 = ASN1ObjectIdentifier("1.3.101.112")
+
+        /** id-ecPublicKey, RFC 5480. */
+        val EC_PUBLIC_KEY = ASN1ObjectIdentifier("1.2.840.10045.2.1")
+
+        /** secp256r1 / prime256v1 / NIST P-256, RFC 5480. */
+        val PRIME256V1 = ASN1ObjectIdentifier("1.2.840.10045.3.1.7")
+
+        const val P256_CURVE = "secp256r1"
         const val ED25519_PUBLIC_KEY_BYTES = 32
         const val ED25519_SIGNATURE_BYTES = 64
         const val P256_SIGNATURE_BYTES = 64

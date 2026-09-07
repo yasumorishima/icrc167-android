@@ -16,6 +16,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     testImplementation(kotlin("test"))
+    testImplementation("org.bouncycastle:bcutil-jdk18on:1.78.1")
 }
 
 tasks.test {

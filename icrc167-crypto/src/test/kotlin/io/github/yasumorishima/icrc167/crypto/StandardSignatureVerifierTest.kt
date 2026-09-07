@@ -157,7 +157,7 @@ private class Ed25519TestKey {
 }
 
 private class P256TestKey {
-    private val curve = CustomNamedCurves.getByName("P-256")
+    private val curve = CustomNamedCurves.getByName("secp256r1")
     private val domain = ECDomainParameters(curve.curve, curve.g, curve.n, curve.h, curve.seed)
     private val privateKey: ECPrivateKeyParameters
     private val publicKey: ECPublicKeyParameters
