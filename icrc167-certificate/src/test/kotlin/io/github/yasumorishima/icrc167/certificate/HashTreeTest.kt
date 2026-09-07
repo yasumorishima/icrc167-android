@@ -101,6 +101,25 @@ class HashTreeTest {
     }
 
     @Test
+    fun `rejects a leaf that is not the whole tree`() {
+        // well_formed_forest requires no element of the forest to be a leaf; a leaf is only
+        // well formed as a tree in its own right. Reading the rule as "at most one leaf and
+        // no labels" instead lets this through.
+        val leafInsideAFork = HashTree.Fork(HashTree.Leaf(byteArrayOf(1)), HashTree.Empty)
+        assertFalse(leafInsideAFork.isWellFormed())
+
+        val leafBesideALabel = HashTree.Fork(
+            HashTree.Labeled("a".toByteArray(), HashTree.Leaf(byteArrayOf(1))),
+            HashTree.Leaf(byteArrayOf(2)),
+        )
+        assertFalse(leafBesideALabel.isWellFormed())
+
+        // A bare leaf, and an empty tree, remain well formed.
+        assertTrue(HashTree.Leaf(byteArrayOf(1)).isWellFormed())
+        assertTrue(HashTree.Empty.isWellFormed())
+    }
+
+    @Test
     fun `rejects a pruned digest of the wrong length`() {
         // 8204 43 aabbcc = Pruned(3 bytes)
         assertFailsWith<CborException> { parse("820443aabbcc".hexToBytes()) }

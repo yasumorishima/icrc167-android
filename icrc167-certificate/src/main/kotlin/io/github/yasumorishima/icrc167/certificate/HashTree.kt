@@ -129,24 +129,27 @@ public fun HashTree.lookupPath(vararg path: String): Lookup =
  * must be rejected before its answers are believed.
  */
 public fun HashTree.isWellFormed(): Boolean {
+    // `well_formed(tree) = (tree = Leaf _) v well_formed_forest(flatten_forks(tree))`:
+    // a leaf is well formed as a whole tree, and only as a whole tree.
     if (this is HashTree.Leaf) return true
+
     val forest = flattenForks(this)
     val labels = ArrayList<ByteArray>()
-    var sawLeaf = false
     for (node in forest) {
         when (node) {
             is HashTree.Labeled -> {
                 labels.add(node.label)
                 if (!node.subtree.isWellFormed()) return false
             }
-            is HashTree.Leaf -> sawLeaf = true
             is HashTree.Pruned -> Unit
-            is HashTree.Empty -> return false // Empty only stands alone, never inside a fork
-            is HashTree.Fork -> return false // flattenForks removed these
+            // `∀ t ∈ trees. t ≠ Leaf _`. Having already returned for a bare leaf above,
+            // one appearing inside a forest is a tree the IC would never have produced.
+            is HashTree.Leaf -> return false
+            // flatten_forks emits neither of these; matched so the compiler keeps this
+            // exhaustive if the node types ever grow.
+            is HashTree.Empty, is HashTree.Fork -> return false
         }
     }
-    if (sawLeaf && labels.isNotEmpty()) return false
-    if (sawLeaf && forest.size != 1) return false
     for (i in 0 until labels.size - 1) {
         if (compareUnsigned(labels[i], labels[i + 1]) >= 0) return false
     }
