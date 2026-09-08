@@ -1,0 +1,137 @@
+name: Dependabot auto-merge
+
+# Takes in a Dependabot pull request once CI is green, but only for patch and
+# minor bumps.
+#
+# The trigger is workflow_run rather than pull_request for two reasons. The
+# GITHUB_TOKEN handed to a Dependabot pull request is read-only, so it cannot
+# merge; and workflow_run fires on CI having finished, so there is no waiting
+# logic of its own to get wrong. What runs is the copy of this file on the
+# default branch, so a pull request cannot substitute its own. Nothing is
+# checked out.
+#
+# Every decision is fail-closed: a fork, a branch that is not Dependabot's, a
+# head that CI did not see, a body whose versions cannot be read, or a major
+# bump all end in doing nothing.
+#
+# Note that `Device tests` is path-filtered and does not run on every pull
+# request. The gate here is CI alone.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  # A push made with GITHUB_TOKEN does not start a workflow, so main would go
+  # unchecked after a merge. workflow_dispatch is the documented exception.
+  actions: write
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.workflow_run.head_branch }}
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge the pull request if CI passed and nothing major moved
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "the branch lives in $HEAD_REPO, a fork; doing nothing"
+            exit 0
+          fi
+
+          case "$BRANCH" in
+            dependabot/*) ;;
+            *) echo "$BRANCH is not a Dependabot branch; doing nothing"; exit 0 ;;
+          esac
+
+          # --head also returns pull requests opened from forks, so a fork
+          # branch with the same name would shadow the real one. gh reports the
+          # app author as app/dependabot on some versions and dependabot[bot] on
+          # others; accept both.
+          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+                 --json number,author,headRefOid,title,body,isCrossRepository \
+                 --jq '[ .[]
+                         | select(.isCrossRepository | not)
+                         | select(.author.login == "app/dependabot"
+                                  or .author.login == "dependabot[bot]") ][0] // empty')
+          if [ -z "$pr" ]; then
+            echo "no open Dependabot pull request on $BRANCH; doing nothing"
+            exit 0
+          fi
+
+          number=$(jq -r '.number' <<<"$pr")
+          head=$(jq -r '.headRefOid' <<<"$pr")
+          jq -r '.body' <<<"$pr" > pr-body.txt
+
+          # If the head has moved, the green belongs to different content.
+          if [ "$head" != "$HEAD_SHA" ]; then
+            echo "pull request #$number is at $head but CI saw $HEAD_SHA; doing nothing"
+            exit 0
+          fi
+
+          verdict=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          body = pathlib.Path("pr-body.txt").read_text(encoding="utf-8", errors="replace")
+
+          # Only Dependabot's own summary lines. Release notes quoted into the
+          # body carry lines such as "bump postcss from 8.5.15 to 8.5.18" that
+          # have nothing to do with this pull request.
+          claims = [l for l in body.splitlines() if re.match(r"^(?:Bumps|Updates) ", l)]
+          # The group heading ("Bumps the gradle group with 3 updates:") has no versions.
+          claims = [l for l in claims
+                    if not re.match(r"^Bumps the .+ group with \d+ update", l)]
+
+          pairs = []
+          for line in claims:
+              m = re.search(r"\bfrom v?(\d+(?:\.\d+)*) to v?(\d+(?:\.\d+)*)", line)
+              if m:
+                  pairs.append(m.groups())
+
+          # Some summary lines carry no old version at all ("Updates `x` to 1.2.3").
+          # Fewer pairs than claims means a dependency was not read.
+          if not pairs or len(pairs) != len(claims):
+              print("unreadable")
+          elif all(a.split(".")[0] == b.split(".")[0] for a, b in pairs):
+              print("ok %d" % len(pairs))
+          else:
+              print("major")
+          PY
+          )
+          echo "versions read as: $verdict"
+
+          case "$verdict" in
+            ok\ *)
+              # --match-head-commit makes GitHub itself check the head, so a
+              # rebase landing between the verdict and the merge cannot slip
+              # unverified commits in.
+              gh pr merge "$number" --repo "$REPO" --squash --delete-branch \
+                --match-head-commit "$HEAD_SHA"
+              echo "merged pull request #$number"
+              gh workflow run ci.yml --repo "$REPO" --ref main \
+                -f memo="checking main after taking in Dependabot #$number"
+              ;;
+            major)
+              echo "a major bump is included; leaving pull request #$number open"
+              ;;
+            *)
+              echo "could not read the versions; leaving pull request #$number open"
+              ;;
+          esac
