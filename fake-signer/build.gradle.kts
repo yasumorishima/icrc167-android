@@ -10,7 +10,7 @@ kotlin {
 dependencies {
     implementation(project(":icrc167-core"))
     implementation("org.json:json:20240303")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 }
 
 application {
