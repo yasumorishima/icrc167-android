@@ -36,6 +36,15 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+    ignore:
+      # org.json ships with the Android platform and is declared compileOnly so a
+      # consumer does not bundle a second copy. The version has to match what the
+      # platform provides, not the newest release: compiling against a newer API
+      # links fine on a desktop JVM and fails at runtime on a device. Dependabot
+      # opened three pull requests for it on 2026-09-08; none of them was safe.
+      # Alerts are unaffected, so a genuine CVE here still surfaces.
+      - dependency-name: "org.json:json"
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
