@@ -90,14 +90,12 @@ jobs:
           import re
 
           body = pathlib.Path("pr-body.txt").read_text(encoding="utf-8", errors="replace")
+          lines = body.splitlines()
 
-          # Only Dependabot's own summary lines. Release notes quoted into the
-          # body carry lines such as "bump postcss from 8.5.15 to 8.5.18" that
-          # have nothing to do with this pull request.
-          claims = [l for l in body.splitlines() if re.match(r"^(?:Bumps|Updates) ", l)]
-          # The group heading ("Bumps the gradle group with 3 updates:") has no versions.
-          claims = [l for l in claims
-                    if not re.match(r"^Bumps the .+ group with \d+ update", l)]
+          # Only Dependabot's own summary lines. Release notes quoted into the body carry
+          # lines such as "bump postcss from 8.5.15 to 8.5.18" that are not this update.
+          heads = [l for l in lines if re.match(r"^Bumps the .+ group with \d+ update", l)]
+          claims = [l for l in lines if re.match(r"^(?:Bumps|Updates) ", l) and l not in heads]
 
           pairs = []
           for line in claims:
@@ -105,9 +103,48 @@ jobs:
               if m:
                   pairs.append(m.groups())
 
+
+          def named_in(head):
+              """The dependency names a group heading lists after its colon."""
+              if ": " not in head:
+                  return []
+              tail = head.split(": ", 1)[1].strip().rstrip(".")
+              out = []
+              for part in re.split(r",\s+|\s+and\s+", tail):
+                  part = part.strip()
+                  m = re.match(r"^\[(.+?)\]\(.*\)$", part)
+                  out.append(m.group(1) if m else part)
+              return [p for p in out if p]
+
+
+          if heads:
+              # A heading either lists its dependencies inline after the colon, or ends at
+              # the colon and lists them on the lines below. Use the names when they are
+              # there and fall back to the declared count when they are not.
+              declared = set()
+              least = 0
+              for h in heads:
+                  names = named_in(h)
+                  if names:
+                      declared.update(names)
+                  else:
+                      least = max(least, int(re.search(r"with (\d+) update", h).group(1)))
+              read = set(re.findall(r"^Updates `([^`]+)` from v?\d", body, re.M))
+              # A body is capped at 65,536 characters, so a group's later per-dependency
+              # sections can be cut off entirely; the headings survive because they come
+              # first. Measured on this repository's own pull request #6, whose body was
+              # exactly 65,536 bytes with androidx.browser's version line missing.
+              structure_ok = (
+                  bool(declared or least)
+                  and declared <= read
+                  and len(read) >= least
+                  and len(pairs) == len(claims)
+              )
+          else:
+              structure_ok = bool(claims) and len(pairs) == len(claims)
+
           # Some summary lines carry no old version at all ("Updates `x` to 1.2.3").
-          # Fewer pairs than claims means a dependency was not read.
-          if not pairs or len(pairs) != len(claims):
+          if not pairs or not structure_ok:
               print("unreadable")
           elif all(a.split(".")[0] == b.split(".")[0] for a, b in pairs):
               print("ok %d" % len(pairs))
