@@ -28,6 +28,6 @@ dependencies {
 
     // Custom Tabs: the authorisation page must run in the user's browser, where the passkey
     // and any existing Internet Identity session already live. A WebView would see neither.
-    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.browser:browser:1.10.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 }
