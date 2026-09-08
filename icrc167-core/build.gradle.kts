@@ -16,7 +16,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.json:json:20240303")
-    testImplementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 }
 
 tasks.test {
