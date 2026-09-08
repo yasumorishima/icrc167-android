@@ -30,7 +30,7 @@ is rooted in a canister signature, which is not verified yet, so no genuine logi
 
 | | |
 |---|---|
-| `icrc167-core` | The transport, delegation chains, principals. Only dependency is `org.json`, and that is `compileOnly` because Android ships it. |
+| `icrc167-core` | The transport, delegation chains, principals. Only dependency is `org.json`, and that is `compileOnly` because Android ships it — so its version has to match what the platform provides, and Dependabot is told to leave it alone. Compiling against a newer one links on a desktop JVM and fails on a device. |
 | `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
 | `icrc167-certificate` | CBOR and the state-tree witness. No dependencies at all. |
 | `icrc167-android` | Custom Tabs, App Links, session keys. |
@@ -173,6 +173,12 @@ There is no Gradle wrapper committed; CI provisions Gradle.
 ```
 gradle :icrc167-core:test
 ```
+
+Dependencies are pulled in weekly rather than waited for. Patch and minor bumps are merged once CI is green; majors are left open
+(`.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`).
+
+`bcprov-jdk18on` and `bcutil-jdk18on` are deliberately on **different** versions (1.85.2 and 1.85): 1.85.2 was a bcprov-only
+release. That mismatch is correct — do not align them.
 
 ## Licence
 
