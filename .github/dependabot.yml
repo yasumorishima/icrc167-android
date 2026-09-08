@@ -1,0 +1,54 @@
+# 依存の更新を待たずに毎週こちらから取りに行く設定。
+#
+# 脆弱性が見つかったときの自動 PR（Dependabot security updates）はリポジトリ側の
+# 設定で有効にしてある。ここで宣言するのは「脆弱性が出る前に古くしておかない」
+# ための定期更新のほうで、両方あって初めて警告メールが届く前に片が付く。
+#
+# 取り込みは .github/workflows/dependabot-auto-merge.yml が CI の緑を見て行う。
+# メジャー更新だけは自動で入らない（同ファイルの判定を参照）。
+version: 2
+updates:
+  - package-ecosystem: gradle
+    # 版はモジュールごとの build.gradle.kts に散っている（版カタログは無い）ので
+    # 全部名指しする。モジュールを増やしたらここにも足す。
+    directories:
+      - "/"
+      - "/icrc167-core"
+      - "/icrc167-crypto"
+      - "/icrc167-certificate"
+      - "/icrc167-android"
+      - "/probe"
+      - "/fake-signer"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    groups:
+      # 1 件 1 PR にすると CI が件数ぶん回る。パッチとマイナーは 1 本にまとめ、
+      # メジャーは個別に立てさせる＝自動取り込みの対象から外れて目に残る。
+      gradle:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(ci)"
