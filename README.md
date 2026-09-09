@@ -11,9 +11,11 @@ Swift). This is the Android counterpart.
 
 ## Status
 
-**Early, and the one piece that matters most is missing.** Everything below the signature
-check is implemented and tested, including on a device — but a real Internet Identity chain
-is rooted in a canister signature, which is not verified yet, so no genuine login completes.
+**Early, but the whole verification path is now there.** A real Internet Identity chain is
+rooted in an IC canister signature, and checking one of those is checking a state-tree
+certificate against the network root key — that is implemented, against the specification and
+against certificates the IC actually issues. What has not happened yet is a round trip with a
+real passkey on a real device.
 
 | | |
 |---|---|
@@ -22,7 +24,7 @@ is rooted in a canister signature, which is not verified yet, so no genuine logi
 | Granted-scope checking against the request | done, tested |
 | Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
 | Certificate machinery: CBOR reader, state-tree witness | done, tested |
-| Canister-signature verification | not yet — needs BLS12-381 |
+| Canister-signature verification (BLS12-381, certificate chain, subnet scope) | done, tested |
 | Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
 | Demo app | not yet |
 
@@ -32,7 +34,8 @@ is rooted in a canister signature, which is not verified yet, so no genuine logi
 |---|---|
 | `icrc167-core` | The transport, delegation chains, principals. Only dependency is `org.json`, and that is `compileOnly` because Android ships it — so its version has to match what the platform provides, and Dependabot is told to leave it alone. Compiling against a newer one links on a desktop JVM and fails on a device. |
 | `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
-| `icrc167-certificate` | CBOR and the state-tree witness. No dependencies at all. |
+| `icrc167-certificate` | CBOR, the state-tree witness, and certificate verification. No dependencies at all: the pairing check arrives as an interface. |
+| `icrc167-canister-sig` | That pairing check, over a vendored MIRACL Core, plus the canister-signature verifier. Optional — an app that never meets one does not ship the arithmetic. |
 | `icrc167-android` | Custom Tabs, App Links, session keys. |
 
 An app that does not need certificates never pulls them in.
@@ -40,9 +43,36 @@ An app that does not need certificates never pulls them in.
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
 table will say so.
 
-Because canister signatures are not verified yet, a real Internet Identity chain is
-currently rejected at hop 0 with `UnsupportedKey` — deliberately a different answer from
-`BadSignature`, so that "the check must be broken" is never the obvious conclusion.
+A chain mixes schemes — Internet Identity signs the root hop with a canister signature and
+the rest with keys WebCrypto produced — so wire both verifiers together:
+
+```kotlin
+DelegationChainVerifier(
+    CompositeSignatureVerifier(StandardSignatureVerifier(), CanisterSignatureVerifier()),
+)
+```
+
+A verifier that does not recognise a key answers `UnsupportedKey`, which is deliberately a
+different answer from `BadSignature`: it is what lets the composite try the next one, and it
+keeps "the check must be broken" from being the obvious conclusion when a scheme is simply not
+compiled in.
+
+### What the canister-signature tests can and cannot show
+
+The arithmetic is fixed on RFC 9380's own hash-to-curve vectors, and certificate verification
+on a certificate captured from `id.ai` — the real mainnet root key, a real subnet delegation,
+the sharded canister ranges, and a set of negative cases built by rewriting that certificate
+(most sharply: pruning a label, which leaves the root hash and therefore the signature
+untouched, and must still be refused).
+
+The two canister signatures in the public record — DFINITY's own, in `internet-identity` and
+in `ic-signature-verification` — are older than the rule that a delegation must state its
+subnet's type, which the IC added to the state tree in 2026. Both are therefore refused, and
+the tests assert *where*: each gets through CBOR, the canister's witness, the delegation's BLS
+signature under the real root key and the canister ranges, and stops at the missing type. The
+accepting path is exercised on certificates built in the tests, with the pairing stubbed. If a
+canister signature issued under the current rules turns up, it belongs in
+`icrc167-canister-sig/src/test/resources/vectors`.
 
 ### Where the state tree is pinned
 

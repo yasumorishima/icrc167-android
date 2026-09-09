@@ -129,7 +129,7 @@ public fun HashTree.lookupPath(path: List<ByteArray>): Lookup {
         }
     }
     return when (node) {
-        is HashTree.Leaf -> Lookup.Found((node as HashTree.Leaf).rawValue.copyOf())
+        is HashTree.Leaf -> Lookup.Found(node.rawValue.copyOf())
         is HashTree.Empty -> Lookup.Absent
         is HashTree.Pruned -> Lookup.Unknown
         is HashTree.Labeled, is HashTree.Fork -> Lookup.Error
@@ -138,6 +138,40 @@ public fun HashTree.lookupPath(path: List<ByteArray>): Lookup {
 
 public fun HashTree.lookupPath(vararg path: String): Lookup =
     lookupPath(path.map { it.toByteArray(Charsets.UTF_8) })
+
+/**
+ * What a subtree lookup found. The failure kinds mean what they mean in [Lookup]: only
+ * [Absent] is a proof, and it is a proof about the state, not about this witness.
+ */
+public sealed interface SubtreeLookup {
+    public class Found(public val subtree: HashTree) : SubtreeLookup
+
+    /** The tree proves nothing hangs below the path. */
+    public object Absent : SubtreeLookup
+
+    /** The witness was pruned on the way; nothing is proved either way. */
+    public object Unknown : SubtreeLookup
+}
+
+/**
+ * Follows a path of labels and hands back whatever hangs below it, rather than insisting the
+ * path ends at a leaf.
+ *
+ * Needed where the interesting structure is the shape below a path and not one value: the
+ * shards under `/canister_ranges/<subnet_id>` are labelled with the canister id each one
+ * starts at, so the caller has to search them rather than name one.
+ */
+public fun HashTree.lookupSubtree(path: List<ByteArray>): SubtreeLookup {
+    var node: HashTree = this
+    for (label in path) {
+        when (val found = findLabel(label, flattenForks(node))) {
+            is LabelSearch.Found -> node = found.subtree
+            LabelSearch.Absent -> return SubtreeLookup.Absent
+            LabelSearch.Unknown -> return SubtreeLookup.Unknown
+        }
+    }
+    return SubtreeLookup.Found(node)
+}
 
 /**
  * Labelled subtrees appear in strictly increasing label order and are never mixed with
