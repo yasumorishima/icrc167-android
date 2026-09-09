@@ -5,7 +5,8 @@ plugins {
 
 android {
     namespace = "io.github.yasumorishima.icrc167.android"
-    compileSdk = 34
+    // androidx.browser 1.10.0 refuses to be compiled against anything older.
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 26

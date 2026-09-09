@@ -27,10 +27,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "8.11"
+          # The floor for Android Gradle plugin 8.13.
+          gradle-version: "8.13"
 
       - name: Test
         run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test :icrc167-certificate:test
+
+      - name: The auto-merge gate refuses a red check
+        # Cheap, and the one thing that would otherwise only be measured by a
+        # dependency bump going in over a failing build, as #13 did.
+        run: bash scripts/test-head-green-gate.sh
 
       - name: Compile the Android library
         run: gradle --no-daemon --stacktrace :icrc167-android:assembleDebug
