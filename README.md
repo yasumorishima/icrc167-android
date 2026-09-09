@@ -32,7 +32,7 @@ real passkey on a real device.
 
 | | |
 |---|---|
-| `icrc167-core` | The transport, delegation chains, principals. Only dependency is `org.json`, and that is `compileOnly` because Android ships it — so its version has to match what the platform provides, and Dependabot is told to leave it alone. Compiling against a newer one links on a desktop JVM and fails on a device. |
+| `icrc167-core` | The transport, delegation chains, principals. The only dependency it ships is `org.json`, and that is `compileOnly` because Android ships it — so its version has to match what the platform provides, and Dependabot is told to leave it alone. Compiling against a newer one links on a desktop JVM and fails on a device. |
 | `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
 | `icrc167-certificate` | CBOR, the state-tree witness, and certificate verification. No dependencies at all: the pairing check arrives as an interface. |
 | `icrc167-canister-sig` | That pairing check, over a vendored MIRACL Core, plus the canister-signature verifier. Optional — an app that never meets one does not ship the arithmetic. |
@@ -52,10 +52,11 @@ DelegationChainVerifier(
 )
 ```
 
-A verifier that does not recognise a key answers `UnsupportedKey`, which is deliberately a
-different answer from `BadSignature`: it is what lets the composite try the next one, and it
-keeps "the check must be broken" from being the obvious conclusion when a scheme is simply not
-compiled in.
+A verifier that does not recognise a key answers `SignatureCheck.UNSUPPORTED_KEY`, which is
+deliberately a different answer from `INVALID`: it is what lets the composite try the next
+one. A chain that ends there is rejected as `ChainRejection.UnsupportedKey` rather than
+`BadSignature`, so "the check must be broken" is never the obvious conclusion when a scheme is
+simply not compiled in.
 
 ### What the canister-signature tests can and cannot show
 
@@ -67,7 +68,9 @@ untouched, and must still be refused).
 
 The two canister signatures in the public record — DFINITY's own, in `internet-identity` and
 in `ic-signature-verification` — are older than the rule that a delegation must state its
-subnet's type, which the IC added to the state tree in 2026. Both are therefore refused, and
+subnet's type. The type reached the state tree in `dfinity/portal` `db5ec5e9`
+(2026-03-17) and the rule about it in `75816500` (2026-05-05), both later than either
+vector. Both are therefore refused, and
 the tests assert *where*: each gets through CBOR, the canister's witness, the delegation's BLS
 signature under the real root key and the canister ranges, and stops at the missing type. The
 accepting path is exercised on certificates built in the tests, with the pairing stubbed. If a
@@ -141,9 +144,10 @@ in memory. On a real device the browser owns the foreground for as long as the u
 authenticate, so that is the only path that matters. That `B` succeeds *after* `A` is what
 shows a forged callback cannot burn a sign-in the user is still in the middle of.
 
-What this does *not* establish: that a real Internet Identity chain verifies. That chain is
-rooted in a canister signature, which is still unimplemented. Nor does it exercise Custom
-Tabs, Digital Asset Links verification, or the signer's own callback matching.
+What this does *not* establish: that a real Internet Identity round trip works. Verifying
+the chain is covered elsewhere — see the canister-signature section above — but nothing here
+exercises Custom Tabs, Digital Asset Links verification, or the signer's own callback
+matching, and no sign-in with a real passkey has happened yet.
 
 The same run also pins down a trap worth stating plainly. `Uri.getFragment()`
 percent-decodes the *whole* fragment before you can split it:
@@ -204,8 +208,11 @@ There is no Gradle wrapper committed; CI provisions Gradle.
 gradle :icrc167-core:test
 ```
 
-Dependencies are pulled in weekly rather than waited for. Patch and minor bumps are merged once CI is green; majors are left open
-(`.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`).
+Dependencies are pulled in weekly rather than waited for. Patch and minor bumps are merged
+once **every** check on the head is finished and green; majors are left open
+(`.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`). Every check, not
+just CI: gating on CI alone is how an `androidx.browser` bump landed on main over a failing
+`Device tests` and left the Android build broken.
 
 `bcprov-jdk18on` and `bcutil-jdk18on` are deliberately on **different** versions (1.85.2 and 1.85): 1.85.2 was a bcprov-only
 release. That mismatch is correct — do not align them.
