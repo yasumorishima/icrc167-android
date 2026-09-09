@@ -14,17 +14,23 @@ name: Dependabot auto-merge
 # head that CI did not see, a body whose versions cannot be read, or a major
 # bump all end in doing nothing.
 #
-# Note that `Device tests` is path-filtered and does not run on every pull
-# request. The gate here is CI alone.
+# Green means every check on the head, not just this one. Pull request #13 was
+# merged on a green CI while `Device tests` was failing, and main stayed broken
+# until somebody noticed. So both workflows trigger this one, and whichever
+# check finishes last does the merging; a run that finds anything still going
+# leaves the job to that one. (`Device tests` filters by path on pushes only, so
+# it does run on every pull request.)
 
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Device tests]
     types: [completed]
 
 permissions:
   contents: write
   pull-requests: write
+  # To see how the other checks on this head finished.
+  checks: read
   # A push made with GITHUB_TOKEN does not start a workflow, so main would go
   # unchecked after a merge. workflow_dispatch is the documented exception.
   actions: write
@@ -43,6 +49,7 @@ jobs:
       - name: Merge the pull request if CI passed and nothing major moved
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -81,9 +88,44 @@ jobs:
 
           # If the head has moved, the green belongs to different content.
           if [ "$head" != "$HEAD_SHA" ]; then
-            echo "pull request #$number is at $head but CI saw $HEAD_SHA; doing nothing"
+            echo "pull request #$number is at $head but the run saw $HEAD_SHA; doing nothing"
             exit 0
           fi
+
+          # Every check on this head has to be finished and green.
+          raw=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100")
+          # verdict:begin — scripts/test-head-green-gate.sh lifts the lines between
+          # these markers out of this file and runs them, so the cases it covers are
+          # this code and not a copy of it.
+          # A workflow_run job reports against the default branch rather than the
+          # pull request head, so this one should not be in the list at all; the
+          # filter is there so that a change in that behaviour cannot deadlock the
+          # gate against itself.
+          checks=$(jq -r --arg run "$GITHUB_RUN_ID" '
+                     .check_runs[]
+                     | select(((.details_url // "") | contains("/runs/" + $run)) | not)
+                     | [.status, .conclusion // "", .name] | @tsv' <<<"$raw")
+          if [ -z "$checks" ]; then
+            echo "no checks reported for $HEAD_SHA; doing nothing"
+            exit 0
+          fi
+
+          pending=$(awk -F'\t' '$1 != "completed" { print $3 }' <<<"$checks" | tr '\n' ' ')
+          if [ -n "${pending// /}" ]; then
+            echo "still running: $pending; leaving the merge to whichever finishes last"
+            exit 0
+          fi
+
+          # skipped and neutral are how a check says it had nothing to do.
+          bad=$(awk -F'\t' '
+                  $2 != "success" && $2 != "skipped" && $2 != "neutral" {
+                    print $3 "(" $2 ")"
+                  }' <<<"$checks" | tr '\n' ' ')
+          if [ -n "${bad// /}" ]; then
+            echo "not green: $bad; doing nothing"
+            exit 0
+          fi
+          # verdict:end
 
           verdict=$(python3 - <<'PY'
           import pathlib

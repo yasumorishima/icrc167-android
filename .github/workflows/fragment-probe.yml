@@ -45,7 +45,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "8.11"
+          # The floor for Android Gradle plugin 8.13.
+          gradle-version: "8.13"
 
       - name: Enable KVM
         run: |
