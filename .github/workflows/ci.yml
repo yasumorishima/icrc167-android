@@ -31,7 +31,10 @@ jobs:
           gradle-version: "8.13"
 
       - name: Test
-        run: gradle --no-daemon --stacktrace :icrc167-core:test :icrc167-crypto:test :icrc167-certificate:test
+        run: |
+          gradle --no-daemon --stacktrace \
+            :icrc167-core:test :icrc167-crypto:test :icrc167-certificate:test \
+            :icrc167-canister-sig:test
 
       - name: The auto-merge gate refuses a red check
         # Cheap, and the one thing that would otherwise only be measured by a
@@ -49,6 +52,8 @@ jobs:
           path: |
             icrc167-core/build/reports/tests/test
             icrc167-crypto/build/reports/tests/test
+            icrc167-certificate/build/reports/tests/test
+            icrc167-canister-sig/build/reports/tests/test
           retention-days: 7
 
   well-known:
