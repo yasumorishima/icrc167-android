@@ -137,4 +137,18 @@ class ResponseVerificationTest {
         val checked = verifier.verify(elsewhere, real, vector("subnet-certificate.cbor"))
         assertTrue(checked is ResponseVerification.Invalid, checked.toString())
     }
+
+    @Test
+    fun `another root key does not certify this subnet`() {
+        // The one negative that the pairing itself has to answer. Every other case here fails
+        // earlier -- at the canister ranges, at the node lookup, at the Ed25519 signature --
+        // so a BLS verifier that always said yes would go unnoticed without this.
+        val real = exchangeOf("signed-request.hex", "signed-reply.cbor")
+        val elsewhere = QueryResponseVerifier(
+            CertificateVerifier(MiraclBls, rootPublicKeyRaw = ByteArray(96) { 0x11 }),
+            StandardSignatureVerifier(),
+        )
+        val checked = elsewhere.verify(canister, real, vector("subnet-certificate.cbor"))
+        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
+    }
 }

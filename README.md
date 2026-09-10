@@ -27,6 +27,7 @@ real passkey on a real device.
 | Canister-signature verification (BLS12-381, certificate chain, subnet scope) | done, tested |
 | Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
+| Checking the node signature on a query response | done, verified to the network root key |
 | Demo app | not yet |
 
 ### Modules
@@ -211,16 +212,30 @@ The endpoint is `/api/v3/canister/<id>/query`. The v2 path still answers — mea
 day — but the specification marks it deprecated, so v3 is the default and the version is a
 constructor argument.
 
-Scope, said plainly. A query response **can** be authenticated: it carries a node signature,
-and the interface specification says how to check it (`verify_node_signatures` over
-the byte 0x0B followed by `ic-response`, against node public keys read from a *separate*
-`read_state` of `/subnet`). This does not do that. It reads the reply and hands it over.
+### The answer is checked, not just read
 
-So the round trip checks a delegation chain from the outside **only as far as the node that
-answered is honest** — enough for *does the chain I hold actually name me*, which nothing else
-here can answer at all, and not enough for reading state you intend to trust. The certificate
-verification that signature check would need is already in this repository; wiring it to query
-responses is not done.
+A query reply is otherwise whatever answered: the principal in a `whoami` reply is a string a
+boundary node could write itself. So `verifiedWhoami` above is the interesting call, and this
+is what it does, as the specification defines it — fetch the subnet certificate in a
+*separate* `read_state`, verify it to the network root key, read the public key of the
+answering node out of the certified tree, and check the signature over the byte 0x0B followed
+by `ic-response` and a hash of the answer, the timestamp and the request id. Every signature
+in the response has to verify, not one of them.
+
+```kotlin
+val verifier = QueryResponseVerifier(CertificateVerifier(MiraclBls), StandardSignatureVerifier())
+val seen = IcAgent().verifiedWhoami(canister, DelegatedIdentity(chain, sessionKey::sign), verifier)
+```
+
+Three details were settled by measuring rather than by reading. A **nested map** hashes to its
+own digest, used as it stands — wrapping that digest in a blob hashes it twice and the live
+signature refuses it. **`error_code`** is optional in a rejection and is part of what is
+signed when it is present. And a subnet certificate has no expiry of its own, which is why the
+recorded exchanges in the tests still verify to the root key with the real pairing.
+
+What this still does not decide is **age**: the specification names no window for a query
+signature, so the timestamp is handed back rather than judged. A caller that cares about
+replay has to say what is too old.
 
 
 ## What you have to host
