@@ -38,3 +38,7 @@ hashed map. Nothing here expires cryptographically -- the BLS signature over a c
 but the verifier refuses answers that are not recent, so the tests run it with the clock set
 to the moment each answer was signed. A recording that verified without that would mean the
 recency check was not there.
+
+The delegation inside `subnet-certificate.cbor` was already about five minutes older than the
+answer when it was recorded, which is how the two windows the specification asks for got
+noticed: a single five-minute window put that recording seconds away from failing for ever.

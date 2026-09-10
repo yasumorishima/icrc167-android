@@ -233,12 +233,15 @@ signature refuses it. **`error_code`** is optional in a rejection and is part of
 signed when it is present. And a subnet certificate has no expiry of its own, which is why the
 recorded exchanges in the tests still verify to the root key with the real pairing.
 
-**Age is part of the check.** The specification requires every timestamp — the signatures,
-the certificate, its delegation — to be recent enough, and fixes no number; five minutes is
-the window here, the one agent-rs uses, and it is a constructor argument. Without it a
-captured answer replays for ever and a stale certificate keeps a rotated-out node
-authoritative. This is also why the recorded exchanges in the tests are verified with the
-clock set to the moment they were signed.
+**Age is part of the check, and it takes two windows.** The specification leaves the numbers
+to the client and says what is reasonable: five minutes for the signatures and the
+certificate, matching the ingress expiry mainnet enforces, and **at least a week** for a
+delegation, because mainnet only refreshes those when replicas are upgraded. One window for
+both would be wrong in a way that shows up in production rather than in a test — live
+delegations measured on 2026-09-10 were already 37 to 204 seconds old. Both are constructor
+arguments. Without any of it a captured answer replays for ever and a stale certificate keeps
+a rotated-out node authoritative, which is also why the recorded exchanges in the tests are
+verified with the clock set to the moment they were signed.
 
 
 ## What you have to host

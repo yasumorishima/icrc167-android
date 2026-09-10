@@ -33,16 +33,19 @@ public sealed interface ResponseVerification {
  * The certificate has to come from a separate read_state, by design: an answer cannot
  * certify itself.
  *
- * Recency is part of the check and not an afterthought. The specification requires every
- * timestamp -- the signatures, the certificate, its delegation -- to be recent enough, and
- * fixes no number, so [maxAge] is ours: five minutes, the window agent-rs uses. Without it a
- * captured answer replays for ever and a stale certificate keeps a rotated-out node
- * authoritative.
+ * Recency is part of the check and not an afterthought: without it a captured answer replays
+ * for ever and a stale certificate keeps a rotated-out node authoritative. The specification
+ * leaves the windows to the client and says what is reasonable -- five minutes for the
+ * signatures and the certificate, matching the ingress expiry mainnet enforces, and **at
+ * least a week** for a delegation, because mainnet only refreshes those when replicas are
+ * upgraded. Hence two windows. Measured on 2026-09-10, live delegations were 37 to 204
+ * seconds old, so five minutes would have started refusing honest answers within the hour.
  */
 public class QueryResponseVerifier(
     private val certificates: CertificateVerifier,
     private val nodeSignatures: SignatureVerifier,
     private val maxAge: BigInteger = FIVE_MINUTES,
+    private val maxDelegationAge: BigInteger = ONE_WEEK,
     private val rootSubnetId: Principal? = MAINNET_ROOT_SUBNET,
     private val clock: () -> BigInteger = { systemNanos() },
 ) {
@@ -97,7 +100,9 @@ public class QueryResponseVerifier(
             val inner = Certificate.fromCbor(delegation.certificate)
             val stamped = certificateTime(inner.tree)
                 ?: return ResponseVerification.Invalid("the delegation carries no time")
-            if (!fresh(stamped, now)) {
+            // A week, not five minutes: mainnet refreshes a delegation only when replicas are
+            // upgraded, so a delegation minutes old is the exception and not the rule.
+            if (!fresh(stamped, now, maxDelegationAge)) {
                 return ResponseVerification.Invalid("the delegation is not recent enough")
             }
         }
@@ -195,7 +200,8 @@ public class QueryResponseVerifier(
     )
 
     /** Skew in either direction is bounded: a timestamp from the future is not fresher. */
-    private fun fresh(nanos: BigInteger, now: BigInteger): Boolean = (now - nanos).abs() <= maxAge
+    private fun fresh(nanos: BigInteger, now: BigInteger, window: BigInteger = maxAge): Boolean =
+        (now - nanos).abs() <= window
 
     private fun certificateTime(tree: HashTree): BigInteger? =
         when (val found = tree.lookupPath(listOf(TIME))) {
@@ -253,8 +259,11 @@ public class QueryResponseVerifier(
         public val RESPONSE_DOMAIN_SEPARATOR: ByteArray
             get() = byteArrayOf(0x0B) + "ic-response".toByteArray(Charsets.UTF_8)
 
-        /** The specification requires recency and fixes no window; this is the one agent-rs uses. */
+        /** What the specification calls reasonable for a signature and a certificate. */
         public val FIVE_MINUTES: BigInteger = BigInteger.valueOf(5L * 60 * 1_000_000_000L)
+
+        /** The floor the specification names for a delegation, which mainnet refreshes weekly. */
+        public val ONE_WEEK: BigInteger = BigInteger.valueOf(7L * 24 * 60 * 60 * 1_000_000_000L)
 
         /**
          * The subnet an undelegated certificate speaks for.
