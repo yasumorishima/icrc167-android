@@ -234,4 +234,16 @@ class ResponseVerificationTest {
         val der = (found as Lookup.Found).value
         return der.copyOfRange(der.size - 96, der.size)
     }
+
+    @Test
+    fun `the time leaf is refused when bytes follow the end of the number`() {
+        // 01 02 01 terminates at the first byte, whose value happens to equal the last byte
+        // of the input. Comparing values rather than positions accepted it as 1.
+        val verifier = QueryResponseVerifier(CertificateVerifier(MiraclBls), StandardSignatureVerifier())
+        assertEquals(BigInteger.ONE, verifier.decodeLeb128(byteArrayOf(0x01)))
+        assertEquals(BigInteger.valueOf(624485), verifier.decodeLeb128("e58e26".fromHex()))
+        assertEquals(null, verifier.decodeLeb128(byteArrayOf(0x01, 0x02, 0x01)))
+        assertEquals(null, verifier.decodeLeb128(byteArrayOf(0x80.toByte())))
+        assertEquals(null, verifier.decodeLeb128(ByteArray(0)))
+    }
 }

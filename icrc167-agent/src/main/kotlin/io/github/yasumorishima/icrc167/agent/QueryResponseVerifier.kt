@@ -203,15 +203,20 @@ public class QueryResponseVerifier(
             else -> null
         }
 
-    /** The time leaf is a LEB128 nat, the same encoding the request id hash uses. */
-    private fun decodeLeb128(bytes: ByteArray): BigInteger? {
+    /**
+     * The time leaf is a LEB128 nat, the same encoding the request id hash uses.
+     *
+     * Trailing bytes are refused by *position*, not by value: comparing the terminating byte
+     * to the last byte lets 01 02 01 decode as 1, because the two are equal as numbers.
+     */
+    internal fun decodeLeb128(bytes: ByteArray): BigInteger? {
         var result = BigInteger.ZERO
         var shift = 0
-        for (byte in bytes) {
+        for ((index, byte) in bytes.withIndex()) {
             val value = byte.toInt() and 0x7F
             result = result.or(BigInteger.valueOf(value.toLong()).shiftLeft(shift))
             if (byte.toInt() and 0x80 == 0) {
-                return if (byte == bytes.last()) result else null
+                return if (index == bytes.lastIndex) result else null
             }
             shift += 7
             if (shift > 140) return null
