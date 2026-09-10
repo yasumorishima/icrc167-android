@@ -73,3 +73,46 @@ jobs:
         env:
           ORIGIN: ${{ vars.CALLBACK_ORIGIN }}
         run: bash scripts/check-callback-origin.sh "$ORIGIN"
+
+  min-sdk:
+    name: MIRACL below API 31
+    runs-on: ubuntu-latest
+    # BIG.java calls Math.multiplyHigh, which Android has only from API 31. D8 has to rewrite
+    # it for minSdk 26. If it did not, a real sign-in on an older phone would die inside the
+    # pairing check with NoSuchMethodError, and the API 34 emulator in the device tests would
+    # never notice: case D stops at the CBOR, long before any pairing.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # The floor for Android Gradle plugin 8.13.
+          gradle-version: "8.13"
+
+      - name: Build an app that carries MIRACL, and read its dex
+        run: |
+          set -euo pipefail
+          if ! grep -q "Math.multiplyHigh" icrc167-canister-sig/src/miracl/java/org/miracl/core/BLS12381/BIG.java; then
+            echo "::error::BIG.java no longer calls multiplyHigh, so this job checks nothing; retire it"
+            exit 1
+          fi
+          gradle --no-daemon --stacktrace :probe:assembleDebug
+          dexdump="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)dexdump"
+          mkdir -p dex
+          unzip -o -q probe/build/outputs/apk/debug/probe-debug.apk 'classes*.dex' -d dex
+          for f in dex/classes*.dex; do "$dexdump" -d "$f"; done > dex/dump.txt
+          # Without MIRACL in the APK the absence below would prove nothing.
+          if ! grep -q "Lorg/miracl/core/BLS12381/BIG;" dex/dump.txt; then
+            echo "::error::MIRACL is not in the APK, so this check would prove nothing"
+            exit 1
+          fi
+          if grep -q "Ljava/lang/Math;.multiplyHigh" dex/dump.txt; then
+            echo "::error::the APK calls Math.multiplyHigh, which does not exist below API 31"
+            exit 1
+          fi
+          echo "MIRACL is in the APK, and no call to Math.multiplyHigh survived dexing for minSdk 26"

@@ -38,12 +38,12 @@ real passkey on a real device.
 | `icrc167-core` | The transport, delegation chains, principals. The only dependency it ships is `org.json`, and that is `compileOnly` because Android ships it — so its version has to match what the platform provides, and Dependabot is told to leave it alone. Compiling against a newer one links on a desktop JVM and fails on a device. |
 | `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
 | `icrc167-certificate` | CBOR, the state-tree witness, and certificate verification. No dependencies at all: the pairing check arrives as an interface. |
-| `icrc167-canister-sig` | That pairing check, over a vendored MIRACL Core, plus the canister-signature verifier. The Android module depends on it, because every Internet Identity chain has a canister signature at its root; code that only meets the standard schemes on a plain JVM can leave it out. |
+| `icrc167-canister-sig` | That pairing check, over a vendored MIRACL Core, plus the canister-signature verifier. The Android module depends on it, because every Internet Identity chain has a canister signature at its root; JVM code that checks no certificate at all, neither a canister signature nor a query response, can leave it out. |
 | `icrc167-agent` | The call side: CBOR envelopes, request signing, and just enough Candid to read a principal back. Depends on the core and on the certificate module, to check the node signature on an answer. Neither needs Android, so it runs on a plain JVM as well as in an app. |
 | `icrc167-android` | Custom Tabs, App Links, session keys. Checks both signature schemes by default. |
 
-Only the canister-signature module carries the pairing arithmetic, so JVM code that never
-meets a canister signature leaves MIRACL out.
+Only the canister-signature module carries the pairing arithmetic. JVM code that checks no
+certificate at all, neither a canister signature nor a query response, leaves MIRACL out.
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
 table will say so. The calls in *Asking a canister who you are* are real ones against mainnet,
@@ -308,5 +308,10 @@ release. That mismatch is correct — do not align them.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+`icrc167-canister-sig` vendors [MIRACL Core](https://github.com/miracl/core), which is
+licensed under Apache-2.0 ([its licence](icrc167-canister-sig/src/miracl/java/LICENSE.txt),
+with where it came from in `PROVENANCE` beside it). `icrc167-android` depends on that module,
+so an app built on it ships MIRACL and has to carry that licence as well.
 
 This project is not affiliated with DFINITY.

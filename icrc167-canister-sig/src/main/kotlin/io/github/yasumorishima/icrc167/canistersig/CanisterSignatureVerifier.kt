@@ -19,7 +19,7 @@ import io.github.yasumorishima.icrc167.certificate.IcBlsPublicKey
  * ```
  *
  * It lives in its own module because verifying one of these means pairing arithmetic on
- * BLS12-381, which code that only meets the standard schemes on a plain JVM need not carry.
+ * BLS12-381, which JVM code that checks no certificates at all need not carry.
  * The Android module does depend on it: every Internet Identity chain has a canister signature
  * at its root, so an app that signs in cannot do without it.
  *
