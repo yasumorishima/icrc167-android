@@ -14,11 +14,11 @@ import kotlin.test.assertTrue
 /**
  * The envelopes, byte for byte, against fixtures a separate script produced.
  *
- * Why whole envelopes and not field-by-field assertions: the same code builds the map that is
- * hashed into the request id and the map that goes on the wire, so a test written against
- * this implementation would agree with itself no matter what it emitted. The fixtures come
- * from an independent implementation whose output mainnet accepted on 2026-09-10 -- see
- * `vectors/README.md` -- which is the only thing that makes them evidence.
+ * Why whole envelopes and not field-by-field assertions: a test that rebuilt the expected
+ * bytes the way the implementation builds them would agree with itself no matter what it
+ * emitted. The fixtures come from an independent implementation whose output mainnet accepted
+ * on 2026-09-10 -- see `vectors/README.md` -- which is the only thing that makes them
+ * evidence.
  */
 class EnvelopeTest {
 

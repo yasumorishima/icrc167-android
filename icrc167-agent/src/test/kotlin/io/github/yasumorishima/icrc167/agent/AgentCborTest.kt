@@ -72,15 +72,16 @@ class AgentCborTest {
 
     @Test
     fun `refuses everything outside the agent wire format`() {
-        // A negative integer, a float, an indefinite-length text string, a break with nothing
-        // to break out of, and a reserved additional-information value.
+        // A negative integer, a float, an indefinite-length text string, a break byte where
+        // a value belongs (major type 7 has no indefinite form), and a reserved additional
+        // information value.
         listOf("20", "f97e00", "7f6161ff", "ff", "1c").forEach { hex ->
             assertFailsWith<AgentCborException>(hex) { AgentCbor.decode(hex.fromHex()) }
         }
     }
 
     @Test
-    fun `refuses a length the input cannot hold, without allocating it`() {
+    fun `refuses a length the input cannot hold`() {
         assertFailsWith<AgentCborException> { AgentCbor.decode("5bffffffffffffffff".fromHex()) }
         assertFailsWith<AgentCborException> { AgentCbor.decode("9bffffffffffffffff".fromHex()) }
     }
@@ -90,5 +91,37 @@ class AgentCborTest {
         assertFailsWith<AgentCborException> { AgentCbor.decode("0000".fromHex()) }
         assertFailsWith<AgentCborException> { AgentCbor.decode("18".fromHex()) }
         assertFailsWith<AgentCborException> { AgentCbor.decode("42ab".fromHex()) }
+    }
+
+    @Test
+    fun `decodes the appendix A values, not just encodes them`() {
+        // The encoder assertions above cannot see a reader that misreads a width: everything
+        // else in this module hands the reader bytes the encoder never wrote.
+        fun uintOf(hex: String) = (AgentCbor.decode(hex.fromHex()) as CborItem.Uint).value
+        assertEquals(BigInteger.ZERO, uintOf("00"))
+        assertEquals(BigInteger.valueOf(24), uintOf("1818"))
+        assertEquals(BigInteger.valueOf(1000), uintOf("1903e8"))
+        assertEquals(BigInteger.valueOf(1000000), uintOf("1a000f4240"))
+        assertEquals(BigInteger.valueOf(1000000000000), uintOf("1b000000e8d4a51000"))
+        assertEquals(BigInteger("18446744073709551615"), uintOf("1bffffffffffffffff"))
+        assertEquals("IETF", (AgentCbor.decode("6449455446".fromHex()) as CborItem.Text).value)
+        assertEquals("水", (AgentCbor.decode("63e6b0b4".fromHex()) as CborItem.Text).value)
+        assertEquals("01020304", (AgentCbor.decode("4401020304".fromHex()) as CborItem.Blob).bytes.toHex())
+        assertEquals(3, (AgentCbor.decode("83010203".fromHex()) as CborItem.Arr).items.size)
+        val map = checkNotNull(AgentCbor.textMap(AgentCbor.decode("a26161016162820203".fromHex())))
+        assertEquals(listOf("a", "b"), map.keys.toList())
+    }
+
+    @Test
+    fun `refuses a map that gives the same key twice`() {
+        // Two `a` keys. Last-one-wins would make the meaning depend on the reader.
+        assertFailsWith<AgentCborException> {
+            AgentCbor.textMap(AgentCbor.decode("a2616101616102".fromHex()))
+        }
+    }
+
+    @Test
+    fun `refuses text that is not UTF-8`() {
+        assertFailsWith<AgentCborException> { AgentCbor.decode("62c328".fromHex()) }
     }
 }

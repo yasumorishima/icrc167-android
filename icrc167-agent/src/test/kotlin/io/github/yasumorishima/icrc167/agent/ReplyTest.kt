@@ -35,7 +35,7 @@ class ReplyTest {
             .whoami(canister, AnonymousIdentity)
         assertEquals("2vxsx-fae", seen.toText())
         assertEquals(
-            listOf("https://icp-api.io/api/v2/canister/kvusz-kaaaa-aaaad-aabwa-cai/query"),
+            listOf("https://icp-api.io/api/v3/canister/kvusz-kaaaa-aaaad-aabwa-cai/query"),
             urls,
         )
     }
@@ -86,5 +86,21 @@ class ReplyTest {
     fun `an anonymous identity signs nothing`() {
         assertNull(AnonymousIdentity.authenticate(ByteArray(32)))
         assertEquals("2vxsx-fae", AnonymousIdentity.sender.toText())
+    }
+
+    @Test
+    fun `the deprecated v2 path is still reachable when it is asked for`() {
+        val agent = IcAgent(
+            transport = Transport { url, _ ->
+                urls.add(url)
+                HttpResponse(200, vector("whoami-anonymous-reply.cbor"))
+            },
+            apiVersion = "v2",
+        )
+        assertEquals("2vxsx-fae", agent.whoami(canister, AnonymousIdentity).toText())
+        assertEquals(
+            "https://icp-api.io/api/v2/canister/kvusz-kaaaa-aaaad-aabwa-cai/query",
+            urls.single(),
+        )
     }
 }

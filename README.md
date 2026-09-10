@@ -206,10 +206,20 @@ fourth, signed by the wrong key, refused as `Invalid signature`. The `Live IC` w
 repeats all four against the network every Monday, because a fixture cannot notice the network
 changing its mind.
 
-Scope, said plainly: these are **query** calls, and a query reply is not certified. That is
-the right tool for *does the chain I hold actually name me*, and the wrong one for reading
-state you intend to trust — for that it is an update call plus a certified `read_state`, and
-the certificate machinery for it is already here.
+The endpoint is `/api/v3/canister/<id>/query`. The v2 path still answers — measured the same
+day — but the specification marks it deprecated, so v3 is the default and the version is a
+constructor argument.
+
+Scope, said plainly. A query response **can** be authenticated: it carries a node signature,
+and the interface specification says how to check it (`verify_node_signatures` over
+the byte 0x0B followed by `ic-response`, against node public keys read from a *separate*
+`read_state` of `/subnet`). This does not do that. It reads the reply and hands it over.
+
+So the round trip checks a delegation chain from the outside **only as far as the node that
+answered is honest** — enough for *does the chain I hold actually name me*, which nothing else
+here can answer at all, and not enough for reading state you intend to trust. The certificate
+verification that signature check would need is already in this repository; wiring it to query
+responses is not done.
 
 
 ## What you have to host

@@ -54,13 +54,20 @@ public object AgentCbor {
         return value
     }
 
-    /** The entries of a text-keyed map, or null when [item] is not one. */
+    /**
+     * The entries of a text-keyed map, or null when [item] is not one.
+     *
+     * A repeated key is refused rather than resolved. CBOR leaves the winner to the decoder,
+     * so a map with two `status` entries is a message whose meaning depends on who reads it.
+     */
     public fun textMap(item: CborItem): Map<String, CborItem>? {
         val dict = item as? CborItem.Dict ?: return null
         val out = LinkedHashMap<String, CborItem>(dict.entries.size)
         for ((key, value) in dict.entries) {
             val name = (key as? CborItem.Text)?.value ?: return null
-            out[name] = value
+            if (out.put(name, value) != null) {
+                throw AgentCborException("the map gives the key $name twice")
+            }
         }
         return out
     }

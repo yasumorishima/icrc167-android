@@ -16,7 +16,8 @@ class CandidTest {
 
     @Test
     fun `reads a self-authenticating principal`() {
-        val id = ByteArray(29) { (it + 1).toByte() }
+        // 28 bytes of digest and the 0x02 tag: the shape a delegation chain resolves to.
+        val id = ByteArray(28) { (it + 1).toByte() } + byteArrayOf(0x02)
         val arg = "4449444c0001680101".fromHex().dropLast(1).toByteArray() +
             byteArrayOf(29) + id
         assertEquals(id.toHex(), Candid.decodePrincipal(arg).bytes.toHex())

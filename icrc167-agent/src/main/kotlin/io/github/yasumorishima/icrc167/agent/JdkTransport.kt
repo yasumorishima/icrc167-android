@@ -1,6 +1,8 @@
 package io.github.yasumorishima.icrc167.agent
 
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -9,10 +11,15 @@ import java.net.URI
  * library adds no HTTP dependency to an app that already has one.
  *
  * An app with its own client should implement [Transport] instead of routing around this.
+ *
+ * [host] is not required to be `https`, because a local replica is served over plain HTTP and
+ * refusing that would only push people to fork the file. Point it at anything else and the
+ * delegation in the envelope is on the wire in the clear.
  */
 public class JdkTransport(
     private val connectTimeoutMillis: Int = 15_000,
     private val readTimeoutMillis: Int = 30_000,
+    private val maxBodyBytes: Int = FOUR_MEBIBYTES,
 ) : Transport {
 
     override fun post(url: String, body: ByteArray): HttpResponse {
@@ -33,12 +40,41 @@ public class JdkTransport(
                 // Null when the replica sent no body at all; the status still has to survive.
                 connection.errorStream
             }
-            val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
-            HttpResponse(status, bytes)
+            HttpResponse(status, stream?.use { readCapped(it) } ?: ByteArray(0))
         } catch (e: IOException) {
             throw IcAgentException("$url could not be reached: ${e.message}")
         } finally {
             connection.disconnect()
         }
+    }
+
+    /**
+     * Reads with a ceiling.
+     *
+     * The parser downstream is careful never to allocate more than the input it was handed --
+     * which is worth nothing if the input itself is however many bytes the other end feels
+     * like sending. On a phone that is an OOM, and the other end is not always the replica:
+     * it is whatever answered.
+     */
+    private fun readCapped(stream: InputStream): ByteArray {
+        val out = ByteArrayOutputStream()
+        val chunk = ByteArray(8192)
+        while (true) {
+            val read = stream.read(chunk)
+            if (read < 0) return out.toByteArray()
+            if (out.size() + read > maxBodyBytes) {
+                throw IcAgentException("the response is larger than the $maxBodyBytes byte ceiling")
+            }
+            out.write(chunk, 0, read)
+        }
+    }
+
+    public companion object {
+        /**
+         * A bound of our own, not a protocol constant: the interface specification leaves the
+         * canister response limit to its resource-limits page rather than fixing a number.
+         * Comfortably above any query reply, and far below what would hurt.
+         */
+        public const val FOUR_MEBIBYTES: Int = 4 * 1024 * 1024
     }
 }

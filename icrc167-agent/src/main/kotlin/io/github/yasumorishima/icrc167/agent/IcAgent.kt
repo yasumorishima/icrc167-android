@@ -44,18 +44,23 @@ public fun interface Transport {
 /**
  * Calls a canister as [Identity].
  *
- * Scope, stated plainly: this sends **query** calls, and a query reply is not certified. The
- * node signatures that come back with it are not checked here, and checking them would not
- * make the answer authoritative anyway. That is fine for what this is for -- asking a
- * canister which principal it sees, which is the only way to test a delegation chain from
- * the outside end to end -- and it is not fine as a way to read state you intend to trust.
- * For that, an update call plus a certified `read_state` is the shape, and the certificate
- * verification for it already lives in `icrc167-certificate`.
+ * What this does **not** do, said plainly, because it decides what the answer is worth: a
+ * query response carries a node signature, and the interface specification defines how to
+ * check it -- `verify_node_signatures` over `\x0Bic-response`, against the node public keys
+ * read from a *separate* `read_state` request for `/subnet`. This module does not do that. It
+ * reads the reply and hands it over.
+ *
+ * So the round trip is an external check on a delegation chain **only as far as the node
+ * answering is honest**. That is enough for what it is for -- asking a canister which
+ * principal it sees, which nothing else here can do -- and it is not enough to read state you
+ * intend to trust. The certificate verification the signature check would need already lives
+ * in `icrc167-certificate`; wiring it to query responses is not done.
  */
 public class IcAgent(
     private val host: String = MAINNET,
     private val transport: Transport = JdkTransport(),
     private val ingressExpiry: BigInteger = FOUR_MINUTES,
+    private val apiVersion: String = CURRENT_API_VERSION,
     private val clock: () -> BigInteger = { systemNanos() },
 ) {
 
@@ -67,15 +72,9 @@ public class IcAgent(
         identity: Identity,
         expiryNanos: BigInteger = clock() + ingressExpiry,
     ): SignedRequest {
-        val fields = LinkedHashMap<String, ReprHash.Value>()
-        fields["request_type"] = ReprHash.Value.Text("query")
-        fields["sender"] = ReprHash.Value.Blob(identity.sender.bytes)
-        fields["canister_id"] = ReprHash.Value.Blob(canisterId.bytes)
-        fields["method_name"] = ReprHash.Value.Text(method)
-        fields["arg"] = ReprHash.Value.Blob(arg)
-        fields["ingress_expiry"] = ReprHash.Value.Nat(expiryNanos)
-        val requestId = ReprHash.ofMap(fields)
-
+        // One source for both maps. The request id has to hash exactly what goes on the wire,
+        // and two hand-written copies of the same six fields is how that quietly stops being
+        // true.
         val content = CborItem.Dict(
             listOf(
                 text("request_type") to text("query"),
@@ -86,6 +85,8 @@ public class IcAgent(
                 text("ingress_expiry") to CborItem.Uint(expiryNanos),
             ),
         )
+        val requestId = ReprHash.ofMap(hashable(content))
+
         val envelope = ArrayList<Pair<CborItem, CborItem>>()
         envelope.add(text("content") to content)
         val auth = identity.authenticate(requestId)
@@ -107,7 +108,7 @@ public class IcAgent(
         identity: Identity,
     ): QueryReply {
         val request = queryRequest(canisterId, method, arg, identity)
-        val url = "$host/api/v2/canister/${canisterId.toText()}/query"
+        val url = "$host/api/$apiVersion/canister/${canisterId.toText()}/query"
         val response = transport.post(url, request.body)
         if (response.status != 200) {
             // The replica answers a malformed or badly signed request with plain text, and
@@ -150,7 +151,10 @@ public class IcAgent(
             "rejected" -> QueryReply.Rejected(
                 rejectCode = (body["reject_code"] as? CborItem.Uint)?.value
                     ?: throw IcAgentException("a rejection without a reject_code"),
-                message = (body["reject_message"] as? CborItem.Text)?.value ?: "",
+                // Required by the specification. An empty default here would turn a
+                // malformed rejection into a plausible-looking one.
+                message = (body["reject_message"] as? CborItem.Text)?.value
+                    ?: throw IcAgentException("a rejection without a reject_message"),
                 errorCode = (body["error_code"] as? CborItem.Text)?.value,
             )
             else -> throw IcAgentException("unknown status: $status")
@@ -175,16 +179,43 @@ public class IcAgent(
         )
     }
 
+    /** The content map in the form the request-id hash takes. */
+    private fun hashable(content: CborItem.Dict): Map<String, ReprHash.Value> {
+        val fields = LinkedHashMap<String, ReprHash.Value>(content.entries.size)
+        content.entries.forEach { (key, value) ->
+            val name = (key as? CborItem.Text)?.value
+                ?: throw IcAgentException("a request field is not named by text")
+            fields[name] = reprValue(value)
+        }
+        return fields
+    }
+
+    private fun reprValue(item: CborItem): ReprHash.Value = when (item) {
+        is CborItem.Text -> ReprHash.Value.Text(item.value)
+        is CborItem.Blob -> ReprHash.Value.Blob(item.bytes)
+        is CborItem.Uint -> ReprHash.Value.Nat(item.value)
+        is CborItem.Arr -> ReprHash.Value.Arr(item.items.map { reprValue(it) })
+        // A request content map holds none of these, and the specification hashes nested maps
+        // by a different rule. Refusing beats hashing something else.
+        else -> throw IcAgentException("no request-id hash is defined for this value")
+    }
+
     private fun text(value: String): CborItem = CborItem.Text(value)
 
     private fun blob(value: ByteArray): CborItem = CborItem.Blob(value)
 
     private fun describe(body: ByteArray): String =
-        String(body, Charsets.UTF_8).take(500).filter { it.code in 32..126 }
+        String(body, Charsets.UTF_8).filter { it.code in 32..126 }.take(500)
 
     public companion object {
         /** The public API boundary node. */
         public const val MAINNET: String = "https://icp-api.io"
+
+        /**
+         * `/api/v2/.../query` still answers -- measured on 2026-09-10 -- but the interface
+         * specification marks it deprecated in favour of v3.
+         */
+        public const val CURRENT_API_VERSION: String = "v3"
 
         public val FOUR_MINUTES: BigInteger = BigInteger.valueOf(4L * 60 * 1_000_000_000L)
     }

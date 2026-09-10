@@ -12,6 +12,8 @@ Both arrive as CBOR tag 55799 wrapping an **indefinite-length** map, which is wh
 has its own reader instead of the strict one in `icrc167-certificate`.
 
 The envelope hex strings in `EnvelopeTest` come from the same script, with fixed key seeds and
-a fixed expiry so they are reproducible. The unfixed version of exactly those three envelopes
+a fixed `ingress_expiry` so they are reproducible. That expiry is **not** the one the live
+calls used, and mainnet would refuse it outright: it is a constant chosen for the fixture,
+while the live calls used an expiry a few minutes ahead of the moment they were sent. The unfixed version of exactly those three envelopes
 was accepted by mainnet on the same day, and a fourth with the signature moved to the wrong
 key was refused with `Invalid signature` -- so the shape is measured, not assumed.
