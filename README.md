@@ -251,8 +251,10 @@ The callback origin must serve, without redirects:
 - `/.well-known/assetlinks.json` — Digital Asset Links, so Android verifies the app owns the
   domain and routes the callback to it instead of leaving it in the browser.
 
-The CI job `well-known` measures both against a live origin rather than trusting that they
-were deployed correctly. It runs when the repository variable `CALLBACK_ORIGIN` is set.
+Both are read back rather than trusted: `scripts/check-callback-origin.sh` fetches them the
+way the signer and the platform do, and two workflows call it — the CI job `well-known`,
+which runs when the repository variable `CALLBACK_ORIGIN` is set, and the deploy job, which
+also compares the served callback list against the one in the commit it just published.
 
 Note that **GitHub Pages is not suitable** as this origin: serving an extensionless path with
 `application/json` there requires the directory-plus-`index.json` trick, which introduces a

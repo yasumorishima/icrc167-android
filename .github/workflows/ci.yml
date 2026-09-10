@@ -64,32 +64,12 @@ jobs:
     # redirect, a wrong content type, or a missing CORS header. Measure them, do not assume.
     if: vars.CALLBACK_ORIGIN != ''
     steps:
-      - name: /.well-known/ii-auth-callbacks
-        run: |
-          set -euo pipefail
-          url="${{ vars.CALLBACK_ORIGIN }}/.well-known/ii-auth-callbacks"
-          # Ask the way the signer does, from its own origin: a CORS rule that only answers
-          # same-origin requests would otherwise pass here and fail at sign-in.
-          headers="$(curl -sS -D - -o /tmp/body -H 'Origin: https://id.ai' --max-time 20 "$url")"
-          echo "$headers"
-          echo "$headers" | head -1 | grep -q ' 200 ' \
-            || { echo "::error::expected 200, and no redirect"; exit 1; }
-          echo "$headers" | grep -iq '^content-type: *application/json' \
-            || { echo "::error::content-type must be application/json"; exit 1; }
-          echo "$headers" | grep -iq '^access-control-allow-origin:' \
-            || { echo "::error::the signer must be able to read this cross-origin"; exit 1; }
-          echo "$headers" | grep -iq '^cache-control:.*no-store'             || echo "::warning::no-store is not set; the signer must see the current list"
-          size="$(wc -c < /tmp/body)"
-          [ "$size" -le 8192 ]             || { echo "::error::$size bytes is over the 8 KiB the signer reads"; exit 1; }
-          jq -e '.callbacks | type == "array" and length > 0' /tmp/body
-          jq -e --arg o "${{ vars.CALLBACK_ORIGIN }}" 'all(.callbacks[]; startswith($o + "/"))'             /tmp/body || { echo "::error::an entry is not on this origin"; exit 1; }
+      - uses: actions/checkout@v7
 
-      - name: /.well-known/assetlinks.json
-        run: |
-          set -euo pipefail
-          url="${{ vars.CALLBACK_ORIGIN }}/.well-known/assetlinks.json"
-          headers="$(curl -sS -D - -o /tmp/links --max-time 20 "$url")"
-          echo "$headers"
-          echo "$headers" | head -1 | grep -q ' 200 ' \
-            || { echo "::error::expected 200, and no redirect"; exit 1; }
-          jq -e '.[0].target.package_name' /tmp/links
+      # Deliberately without the expected-list argument: the live origin serves what main
+      # deployed, so comparing it against a branch that is editing the list would fail for
+      # the wrong reason. The deploy workflow is where that comparison belongs.
+      - name: Read both documents back
+        env:
+          ORIGIN: ${{ vars.CALLBACK_ORIGIN }}
+        run: bash scripts/check-callback-origin.sh "$ORIGIN"

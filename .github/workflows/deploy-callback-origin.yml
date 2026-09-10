@@ -1,0 +1,127 @@
+name: Callback origin
+
+# ICRC-167 puts the trust anchor on this origin, so what is actually served decides whether
+# sign-in works at all. The deploy is therefore not the end of this job: the same run reads
+# both documents back and compares the served callback list against the one in this commit,
+# which is what ties the measurement to this deploy rather than to whatever was already there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: "Why this run was started"
+        required: true
+      bootstrap:
+        description: "First run only: publish the template to find out what the origin is"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "callback-origin/**"
+      - "scripts/check-callback-origin.sh"
+
+permissions:
+  contents: read
+
+concurrency: callback-origin
+
+jobs:
+  deploy:
+    name: Deploy and measure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Refuse to publish the template
+        env:
+          BOOTSTRAP: ${{ inputs.bootstrap }}
+        run: |
+          set -euo pipefail
+          list=callback-origin/.well-known/ii-auth-callbacks
+          links=callback-origin/.well-known/assetlinks.json
+          # grep answers "no match" and "no such file" with different exit codes, and an `if`
+          # swallows both. A missing file is the case this guard exists for.
+          [ -s "$list" ] || { echo "::error::$list is missing or empty"; exit 1; }
+          [ -s "$links" ] || { echo "::error::$links is missing or empty"; exit 1; }
+          if grep -q REPLACE "$list"; then
+            # The list has to name the origin, and the origin is not known until something
+            # has been deployed to it. That is the one reason to publish the template: to
+            # find out the name, once, and then fill it in.
+            if [ "${BOOTSTRAP:-}" = "true" ]; then
+              echo "::warning::publishing the template to find out the origin; fill it in and deploy again"
+            else
+              echo "::error::the callback list is still the template; fill in the real origin first"
+              exit 1
+            fi
+          fi
+          if grep -q REPLACE "$links"; then
+            echo "::warning::assetlinks.json is still the template, so Android will not route the callback into the app. Internet Identity does not read this file, so the flow can still be exercised in the browser."
+          fi
+
+      - name: Deploy
+        id: deploy
+        env:
+          # The CLI reads this itself. Passing --token would put the secret in the process
+          # arguments, where anything on the runner can read it.
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::error::VERCEL_TOKEN is not set on this repository"
+            exit 1
+          fi
+          cd callback-origin
+          scope=()
+          if [ -n "${VERCEL_SCOPE:-}" ]; then scope=(--scope "$VERCEL_SCOPE"); fi
+          # Pinned: this runs with the token in its environment, so "whatever the registry
+          # serves today" is not the right amount of trust.
+          url="$(npx --yes vercel@59.15.1 deploy --prod --yes "${scope[@]}" | tail -1)"
+          case "$url" in
+            https://*) ;;
+            *) echo "::error::the CLI did not end with a deployment URL: $url"; exit 1 ;;
+          esac
+          echo "deployed to $url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # --prod prints the deployment URL, not the stable production domain, and the stable one
+      # is what Internet Identity will fetch. Measure that once it is known.
+      - name: Which origin to measure
+        id: target
+        env:
+          CONFIGURED: ${{ vars.CALLBACK_ORIGIN }}
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          origin="$CONFIGURED"
+          if [ -z "$origin" ]; then
+            origin="$DEPLOYED"
+            echo "::warning::CALLBACK_ORIGIN is not set, so this measures the deployment URL rather than the origin the signer will fetch"
+          fi
+          echo "origin=$origin" >> "$GITHUB_OUTPUT"
+
+      - name: Read both documents back
+        # Nothing to read back when what went up is the template.
+        if: ${{ inputs.bootstrap != true }}
+        env:
+          ORIGIN: ${{ steps.target.outputs.origin }}
+        run: bash scripts/check-callback-origin.sh "$ORIGIN" callback-origin/.well-known/ii-auth-callbacks
+
+      - name: Where it went
+        if: always()
+        env:
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+          MEASURED: ${{ steps.target.outputs.origin }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Callback origin"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| deployment | ${DEPLOYED:-(not reached)} |"
+            echo "| measured | ${MEASURED:-(not reached)} |"
+            echo ""
+            echo "Set the repository variable CALLBACK_ORIGIN to the stable origin if it is not already."
+          } >> "$GITHUB_STEP_SUMMARY"
