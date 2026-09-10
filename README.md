@@ -43,7 +43,8 @@ real passkey on a real device.
 An app that does not need certificates never pulls them in.
 
 Nothing here has been through a real Internet Identity round trip yet. When it has, this
-table will say so.
+table will say so. The calls in *Asking a canister who you are* are real ones against mainnet,
+but the chain they carry is one this repository signs for itself.
 
 A chain mixes schemes — Internet Identity signs the root hop with a canister signature and
 the rest with keys WebCrypto produced — so wire both verifiers together:
