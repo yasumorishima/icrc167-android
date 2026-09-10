@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Signs in with Internet Identity and asks a canister who it sees. Unlike the probe, this app
+  claims a real origin: the callback is only delivered here once that origin's
+  assetlinks.json names this package and the certificate it is signed with.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- verifiedWhoami talks to the IC over HTTPS. The library itself declares nothing. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      No backup: the session key's seed is stored encrypted under a Keystore key that never
+      leaves the device, so a restored copy could not be read anyway.
+    -->
+    <application
+        android:allowBackup="false"
+        android:label="ICRC-167 demo">
+
+        <activity
+            android:name=".DemoActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Must match the entry in the origin's /.well-known/ii-auth-callbacks exactly. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="callback-origin.vercel.app"
+                    android:path="/icrc167-callback" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
