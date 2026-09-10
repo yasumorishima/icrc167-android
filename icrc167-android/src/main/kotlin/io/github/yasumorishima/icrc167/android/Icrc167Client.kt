@@ -5,11 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import io.github.yasumorishima.icrc167.ChainVerification
+import io.github.yasumorishima.icrc167.CompositeSignatureVerifier
 import io.github.yasumorishima.icrc167.DelegationChain
 import io.github.yasumorishima.icrc167.DelegationChainVerifier
 import io.github.yasumorishima.icrc167.Icrc167
 import io.github.yasumorishima.icrc167.Icrc167Result
 import io.github.yasumorishima.icrc167.Principal
+import io.github.yasumorishima.icrc167.canistersig.CanisterSignatureVerifier
 import io.github.yasumorishima.icrc167.crypto.StandardSignatureVerifier
 import io.github.yasumorishima.icrc167.systemNanos
 import java.math.BigInteger
@@ -42,8 +44,12 @@ public class Icrc167Client(
     private val callbackUrl: String,
     private val signerUrl: String = Icrc167.INTERNET_IDENTITY_URL,
     private val maxTimeToLiveNanos: BigInteger = Icrc167.EIGHT_HOURS_NANOS,
-    private val chainVerifier: DelegationChainVerifier =
-        DelegationChainVerifier(StandardSignatureVerifier()),
+    // Both schemes, because a real chain needs both: Internet Identity signs the root hop
+    // with a canister signature and the rest with WebCrypto keys. The standard verifier on
+    // its own answers UNSUPPORTED_KEY at the root, which refused every genuine sign-in.
+    private val chainVerifier: DelegationChainVerifier = DelegationChainVerifier(
+        CompositeSignatureVerifier(StandardSignatureVerifier(), CanisterSignatureVerifier()),
+    ),
 ) {
     private val application = context.applicationContext
     private val keys = SessionKeyStore(application)

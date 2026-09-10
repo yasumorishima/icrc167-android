@@ -3,13 +3,14 @@
 # ICRC-167 return trips on a real Android system, without Internet Identity.
 #
 # A stand-in signer produces genuinely signed delegations over the session key the app asked
-# for, and the answers are delivered as App Links. Three cases, because a passing positive
+# for, and the answers are delivered as App Links. Four cases, because a passing positive
 # case on its own proves almost nothing here: the principal is derived from the root public
 # key in the response, so it would still match if signature checking were removed entirely.
 #
 #   A. a forged `state` is refused, and does not burn the sign-in the user is in the middle of
 #   B. the same attempt then completes, across a process kill
 #   C. a delegation whose signature does not check out is refused
+#   D. a chain rooted in a canister signature reaches the verifier that can judge one
 #
 set -euo pipefail
 
@@ -118,5 +119,21 @@ grep -q 'BadSignature' "$LOG" || fail "C: refused, but not because of the signat
 echo "C: PASS — refused"
 
 echo
-echo "All three hold: the client refuses a forged state without losing the attempt, completes"
-echo "it in a fresh process, and refuses a delegation whose signature does not verify."
+echo "== D. a chain rooted in a canister signature =="
+# Every real Internet Identity chain looks like this at hop 0. The signature here cannot be
+# valid, so what matters is who refuses it. UnsupportedKey is what the client's default used
+# to say -- for this chain and for every genuine one, so no real sign-in could complete.
+begin_attempt
+answer canister-root
+deliver "$URL"
+grep -q 'FAILED|' "$LOG" || fail "D: a canister signature that cannot be valid was accepted"
+if grep -q 'UnsupportedKey' "$LOG"; then
+  fail "D: nothing recognised the canister-signature key, so a real chain would be refused too"
+fi
+grep -q 'BadSignature(index=0)' "$LOG" || fail "D: refused, but not by the canister-signature verifier at hop 0"
+echo "D: PASS — the canister-signature verifier judged hop 0"
+
+echo
+echo "All four hold: the client refuses a forged state without losing the attempt, completes"
+echo "it in a fresh process, refuses a delegation whose signature does not verify, and hands a"
+echo "canister-signature root to the verifier that can judge it."
