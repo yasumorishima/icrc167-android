@@ -4,6 +4,9 @@ import io.github.yasumorishima.icrc167.Delegation
 import io.github.yasumorishima.icrc167.DelegationChain
 import io.github.yasumorishima.icrc167.Principal
 import io.github.yasumorishima.icrc167.SignedDelegation
+import io.github.yasumorishima.icrc167.canistersig.MiraclBls
+import io.github.yasumorishima.icrc167.certificate.CertificateVerifier
+import io.github.yasumorishima.icrc167.crypto.StandardSignatureVerifier
 import io.github.yasumorishima.icrc167.systemNanos
 import java.math.BigInteger
 import kotlin.test.Test
@@ -68,5 +71,31 @@ class LiveIcTest {
         val identity = DelegatedIdentity(chainTo(root, session), root.signer())
         val failure = assertFailsWith<IcAgentException> { agent.whoami(canister, identity) }
         assertTrue(failure.message!!.contains("Invalid signature"), failure.message)
+    }
+
+    @Test
+    fun `the answer is signed by a node of the subnet the canister lives on`() {
+        // The whole point of the round trip: not that a principal came back, but that a node
+        // allowed to speak for this subnet said so, checked to the network root key.
+        val verifier = QueryResponseVerifier(CertificateVerifier(MiraclBls), StandardSignatureVerifier())
+        assertEquals("2vxsx-fae", agent.verifiedWhoami(canister, AnonymousIdentity, verifier).toText())
+
+        val root = TestKey.random()
+        val session = TestKey.random()
+        val delegated = DelegatedIdentity(chainTo(root, session), session.signer())
+        assertEquals(
+            Principal.selfAuthenticating(root.der).toText(),
+            agent.verifiedWhoami(canister, delegated, verifier).toText(),
+        )
+    }
+
+    @Test
+    fun `a certificate for one canister does not certify a query to another`() {
+        val exchange = agent.exchange(canister, "whoami", Candid.EMPTY_ARGS, AnonymousIdentity)
+        val certificate = agent.subnetCertificate(canister)
+        val verifier = QueryResponseVerifier(CertificateVerifier(MiraclBls), StandardSignatureVerifier())
+        assertTrue(verifier.verify(canister, exchange, certificate) is ResponseVerification.Valid)
+        val elsewhere = Principal.fromText("aaaaa-aa")
+        assertTrue(verifier.verify(elsewhere, exchange, certificate) is ResponseVerification.Invalid)
     }
 }
