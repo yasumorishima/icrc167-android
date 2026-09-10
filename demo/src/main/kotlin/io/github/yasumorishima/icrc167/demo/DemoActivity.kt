@@ -11,6 +11,7 @@ import io.github.yasumorishima.icrc167.Principal
 import io.github.yasumorishima.icrc167.agent.AnonymousIdentity
 import io.github.yasumorishima.icrc167.agent.DelegatedIdentity
 import io.github.yasumorishima.icrc167.agent.IcAgent
+import io.github.yasumorishima.icrc167.agent.IcAgentException
 import io.github.yasumorishima.icrc167.agent.Identity
 import io.github.yasumorishima.icrc167.agent.QueryResponseVerifier
 import io.github.yasumorishima.icrc167.agent.Signer
@@ -33,7 +34,8 @@ import java.util.concurrent.Executors
  *
  * Two controls run beside it, because a match on its own would also fit a canister that
  * answers everyone alike: an anonymous call has to come back as 2vxsx-fae, and the same chain
- * signed with a key it does not name has to be refused by the replica.
+ * signed with a key it does not name has to be refused by the replica for its signature.
+ * Every line says PASS or FAIL, so nobody has to judge the output by eye.
  */
 class DemoActivity : Activity() {
 
@@ -59,18 +61,24 @@ class DemoActivity : Activity() {
                 say("Signed out. The session keys are gone.")
             }
         }
+        // The APK ships MIRACL Core, which is Apache-2.0: say so where a user of the app sees it.
+        val notice = TextView(this).apply {
+            textSize = 12f
+            text = "Includes MIRACL Core, under the Apache License 2.0: https://github.com/miracl/core"
+        }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
             addView(signIn)
             addView(signOut)
             addView(status)
+            addView(notice)
         }
         setContentView(ScrollView(this).apply { addView(column) })
 
         if (savedInstanceState != null) {
-            // A rotation replays the launch intent. The attempt it answered is already spent,
-            // so handling it again would only report a link that is no longer ours.
+            // The attempt the launch intent answered is already spent, so handling it again
+            // would only report a link that is no longer ours.
             status.text = savedInstanceState.getCharSequence(STATUS)
         } else {
             handle(intent)
@@ -94,53 +102,79 @@ class DemoActivity : Activity() {
     }
 
     private fun handle(intent: Intent?) {
-        if (intent?.data == null) {
+        // Reopened from recents, Android replays the link that started us. Its attempt is long
+        // spent, and reporting it as a stranger's link would only confuse.
+        val fromHistory = intent != null &&
+            (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (intent?.data == null || fromHistory) {
             say("Not signed in.")
             return
         }
         status.text = ""
-        when (val outcome = client.handleRedirect(intent)) {
-            is AuthOutcome.Success -> confirm(outcome)
-            // Shown verbatim: this app is where a live canister signature is first checked,
-            // and the reason is what says which part refused it.
-            is AuthOutcome.Failed -> say("Sign-in refused: " + outcome.reason)
-            AuthOutcome.NotOurs -> say("That link is not an answer to a sign-in started here.")
+        say("Checking the answer...")
+        // Checking a real chain means BLS pairings, a Keystore round trip and calls to the
+        // network, none of which belong on the thread that draws the screen.
+        network.execute {
+            when (val outcome = client.handleRedirect(intent)) {
+                is AuthOutcome.Success -> confirm(outcome)
+                // Shown verbatim: this app is where a live canister signature is first
+                // checked, and the reason is what says which part refused it.
+                is AuthOutcome.Failed -> report("FAIL  sign-in refused: " + outcome.reason)
+                AuthOutcome.NotOurs -> report("That link is not an answer to a sign-in started here.")
+            }
         }
     }
 
+    /** Runs on the network thread. */
     private fun confirm(outcome: AuthOutcome.Success) {
         val key = client.activeSessionKey()
         if (key == null) {
-            say("Signed in, but the session key is gone, so nothing can be signed with it.")
+            report("FAIL  signed in, but the session key is gone, so nothing can be signed with it")
             return
         }
         val expected = outcome.principal.toText()
-        say("Signed in. The chain names " + expected)
-        say("Scope: " + (outcome.effectiveTargets?.joinToString { it.toText() } ?: "any canister"))
-        say("Asking " + CANISTER.toText() + " who is calling...")
+        report("Signed in. The chain names " + expected)
+        report("Scope: " + (outcome.effectiveTargets?.joinToString { it.toText() } ?: "any canister"))
+        report("Asking " + CANISTER.toText() + " who is calling...")
 
-        val signed = DelegatedIdentity(outcome.chain, Signer(key::sign))
-        val wrongKey = DelegatedIdentity(outcome.chain, Signer(SessionKey.generate()::sign))
-        network.execute {
-            val seen = ask(signed)
-            report(
-                if (seen == expected) {
-                    "MATCH: the canister sees " + seen
-                } else {
-                    "NO MATCH: " + seen + " (the chain names " + expected + ")"
-                },
-            )
-            report("Control, anonymous: " + ask(AnonymousIdentity) + " (must be 2vxsx-fae)")
-            report("Control, a key the chain does not name: " + ask(wrongKey) + " (must be refused)")
-        }
+        val seen = ask(DelegatedIdentity(outcome.chain, Signer(key::sign)))
+        report(verdict(seen == expected) + "the canister sees " + seen + "; the chain names " + expected)
+
+        val anonymous = ask(AnonymousIdentity)
+        report(
+            verdict(anonymous == AnonymousIdentity.sender.toText()) +
+                "an anonymous call is seen as " + anonymous,
+        )
+
+        report(wrongKeyControl(DelegatedIdentity(outcome.chain, Signer(SessionKey.generate()::sign))))
     }
 
-    /** The principal the canister reports, or why there is none. Runs off the main thread. */
+    /** The principal the canister reports, or why there is none. */
     private fun ask(identity: Identity): String = try {
         IcAgent().verifiedWhoami(CANISTER, identity, verifier).toText()
     } catch (e: Exception) {
-        "refused: " + e.message
+        "no answer (" + e.message + ")"
     }
+
+    /**
+     * Passes only when the replica refuses the request for its signature, the same test the
+     * live JVM suite applies. A network failure or a bad certificate is not a pass.
+     */
+    private fun wrongKeyControl(identity: Identity): String = try {
+        val seen = IcAgent().verifiedWhoami(CANISTER, identity, verifier).toText()
+        "FAIL  a request signed by a key the chain does not name was answered, as " + seen
+    } catch (e: IcAgentException) {
+        val message = e.message.orEmpty()
+        if (message.contains("Invalid signature")) {
+            "PASS  a key the chain does not name is refused: " + message
+        } else {
+            "FAIL  refused, but not for the signature: " + message
+        }
+    } catch (e: Exception) {
+        "FAIL  the wrong-key control could not run: " + e
+    }
+
+    private fun verdict(passed: Boolean): String = if (passed) "PASS  " else "FAIL  "
 
     private fun report(line: String) = runOnUiThread { say(line) }
 

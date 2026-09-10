@@ -10,15 +10,21 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
-      No backup: the session key's seed is stored encrypted under a Keystore key that never
-      leaves the device, so a restored copy could not be read anyway.
+      No backup. The session key's seed is stored encrypted under a Keystore key that never
+      leaves the device, so a copy that still gets made (from Android 12 a device-to-device
+      transfer can ignore this flag) cannot be read, and is discarded the first time it is loaded.
     -->
     <application
         android:allowBackup="false"
         android:label="ICRC-167 demo">
 
+        <!--
+          Rotation must not restart the activity: a call in flight would report into a screen
+          that no longer exists, and repeating the check needs a fresh sign-in.
+        -->
         <activity
             android:name=".DemoActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask">
 

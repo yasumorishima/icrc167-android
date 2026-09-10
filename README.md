@@ -262,7 +262,8 @@ verified with the clock set to the moment they were signed.
 the device only shows that the chain agrees with itself; the canister is the outside witness.
 Two controls run beside it, because a match on its own would also fit a canister that answers
 everyone alike: an anonymous call has to come back as `2vxsx-fae`, and the same chain signed
-with a key it does not name has to be refused by the replica.
+with a key it does not name has to be refused by the replica for its signature. Every line
+says PASS or FAIL, so the result does not depend on reading the output by eye.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, so it only
 receives the answer once `assetlinks.json` carries its package name and the fingerprint of the
