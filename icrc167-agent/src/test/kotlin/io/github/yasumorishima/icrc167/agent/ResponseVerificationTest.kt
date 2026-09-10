@@ -46,6 +46,7 @@ class ResponseVerificationTest {
         skew: BigInteger = BigInteger.ZERO,
         rootKeyRaw: ByteArray? = null,
         rootSubnetId: Principal? = QueryResponseVerifier.MAINNET_ROOT_SUBNET,
+        maxDelegationAge: BigInteger = QueryResponseVerifier.ONE_WEEK,
     ): QueryResponseVerifier {
         val signed = exchange.response.signatures.first().timestamp
         val certificates = if (rootKeyRaw == null) {
@@ -56,6 +57,7 @@ class ResponseVerificationTest {
         return QueryResponseVerifier(
             certificates,
             StandardSignatureVerifier(),
+            maxDelegationAge = maxDelegationAge,
             rootSubnetId = rootSubnetId,
             clock = { signed + skew },
         )
@@ -130,19 +132,62 @@ class ResponseVerificationTest {
     }
 
     @Test
-    fun `an answer that is not recent enough is refused`() {
+    fun `a certificate that is not recent enough is refused`() {
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
         val certificate = vector("subnet-certificate.cbor")
         val tenMinutes = BigInteger.valueOf(10L * 60 * 1_000_000_000L)
-        // The specification requires recency and fixes no window, so this is the one thing
-        // here that is a choice rather than a measurement -- and it has to bite.
-        assertTrue(
-            reasonOf(verifierAt(exchange, skew = tenMinutes).verify(canister, exchange, certificate))
-                .contains("recent enough"),
+        // Pinned to the exact reason, not to the words "recent enough": three different
+        // checks use that phrase, the certificate is the first of them, and a loose match
+        // would let the other two be deleted without a test noticing.
+        assertEquals(
+            "the certificate is not recent enough",
+            reasonOf(verifierAt(exchange, skew = tenMinutes).verify(canister, exchange, certificate)),
         )
+        assertEquals(
+            "the certificate is not recent enough",
+            reasonOf(
+                verifierAt(exchange, skew = tenMinutes.negate()).verify(canister, exchange, certificate),
+            ),
+        )
+    }
+
+    @Test
+    fun `a signature that is not recent enough is refused`() {
+        // Reached by ageing one signature rather than the clock, so the certificate stays
+        // fresh and this is the only check that can answer.
+        val real = exchangeOf("signed-request.hex", "signed-reply.cbor")
+        val old = real.response.signatures.single()
+        val aged = NodeSignature(
+            old.timestamp - BigInteger.valueOf(10L * 60 * 1_000_000_000L),
+            old.signature,
+            old.nodeId,
+        )
+        val exchange = QueryExchange(
+            real.request,
+            QueryResponse(real.response.reply, listOf(aged), real.response.body),
+        )
+        assertEquals(
+            "a signature is not recent enough",
+            reasonOf(verifierAt(real).verify(canister, exchange, vector("subnet-certificate.cbor"))),
+        )
+    }
+
+    @Test
+    fun `a delegation gets a week, not five minutes`() {
+        // The specification is explicit that a delegation needs a much longer window, because
+        // mainnet only refreshes one when replicas are upgraded. The recorded delegation here
+        // is already minutes old, so a five-minute window would refuse an honest answer.
+        val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
+        val certificate = vector("subnet-certificate.cbor")
         assertTrue(
-            reasonOf(verifierAt(exchange, skew = tenMinutes.negate()).verify(canister, exchange, certificate))
-                .contains("recent enough"),
+            verifierAt(exchange).verify(canister, exchange, certificate) is ResponseVerification.Valid,
+        )
+        assertEquals(
+            "the delegation is not recent enough",
+            reasonOf(
+                verifierAt(exchange, maxDelegationAge = BigInteger.ZERO)
+                    .verify(canister, exchange, certificate),
+            ),
         )
     }
 
