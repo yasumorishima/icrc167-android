@@ -26,6 +26,7 @@ real passkey on a real device.
 | Certificate machinery: CBOR reader, state-tree witness | done, tested |
 | Canister-signature verification (BLS12-381, certificate chain, subnet scope) | done, tested |
 | Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
+| Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Demo app | not yet |
 
 ### Modules
@@ -36,6 +37,7 @@ real passkey on a real device.
 | `icrc167-crypto` | Ed25519 and ECDSA P-256 signature verification, behind the interface the core injects. |
 | `icrc167-certificate` | CBOR, the state-tree witness, and certificate verification. No dependencies at all: the pairing check arrives as an interface. |
 | `icrc167-canister-sig` | That pairing check, over a vendored MIRACL Core, plus the canister-signature verifier. Optional — an app that never meets one does not ship the arithmetic. |
+| `icrc167-agent` | The call side: CBOR envelopes, request signing, and just enough Candid to read a principal back. Depends on the core alone, so it runs on a plain JVM as well as in an app. |
 | `icrc167-android` | Custom Tabs, App Links, session keys. |
 
 An app that does not need certificates never pulls them in.
@@ -183,6 +185,33 @@ Expect the wire format to move. The parts that would move are deliberately kept 
 Both the request and the response ride in the URL **fragment**, so the payload — which
 contains a delegation — never reaches any server or proxy log.
 
+## Asking a canister who you are
+
+A delegation chain that verifies locally is still only this library agreeing with itself. The
+outside check is to make a call with it and let a canister say which principal it saw:
+
+```kotlin
+val agent = IcAgent()
+val identity = DelegatedIdentity(chain, sessionKey::sign)
+val seen = agent.whoami(Principal.fromText("kvusz-kaaaa-aaaad-aabwa-cai"), identity)
+// seen == identity.sender
+```
+
+That canister is the relying party DFINITY runs, and it exports `whoami`.
+
+The envelopes are pinned byte for byte against fixtures a separate script produced, and that
+script's output is what mainnet accepted: an anonymous call, a call signed by a key speaking
+for itself, and a call signed by a session key under a delegation the script made — with a
+fourth, signed by the wrong key, refused as `Invalid signature`. The `Live IC` workflow
+repeats all four against the network every Monday, because a fixture cannot notice the network
+changing its mind.
+
+Scope, said plainly: these are **query** calls, and a query reply is not certified. That is
+the right tool for *does the chain I hold actually name me*, and the wrong one for reading
+state you intend to trust — for that it is an update call plus a certified `read_state`, and
+the certificate machinery for it is already here.
+
+
 ## What you have to host
 
 ICRC-167 puts the trust anchor on the relying party's origin, so an app alone is not enough.
@@ -205,7 +234,13 @@ Note that **GitHub Pages is not suitable** as this origin: serving an extensionl
 There is no Gradle wrapper committed; CI provisions Gradle.
 
 ```
-gradle :icrc167-core:test
+gradle :icrc167-core:test :icrc167-agent:test
+```
+
+The round trip against mainnet is off by default. To run it:
+
+```
+gradle :icrc167-agent:test --tests "*LiveIcTest*" -Dicrc167.live=1
 ```
 
 Dependencies are pulled in weekly rather than waited for. Patch and minor bumps are merged
