@@ -11,12 +11,15 @@ on:
       memo:
         description: "Why this run was started"
         required: true
+      bootstrap:
+        description: "First run only: publish the template to find out what the origin is"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
       - "callback-origin/**"
       - "scripts/check-callback-origin.sh"
-      - ".github/workflows/deploy-callback-origin.yml"
 
 permissions:
   contents: read
@@ -31,6 +34,8 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Refuse to publish the template
+        env:
+          BOOTSTRAP: ${{ inputs.bootstrap }}
         run: |
           set -euo pipefail
           list=callback-origin/.well-known/ii-auth-callbacks
@@ -40,8 +45,15 @@ jobs:
           [ -s "$list" ] || { echo "::error::$list is missing or empty"; exit 1; }
           [ -s "$links" ] || { echo "::error::$links is missing or empty"; exit 1; }
           if grep -q REPLACE "$list"; then
-            echo "::error::the callback list is still the template; fill in the real origin first"
-            exit 1
+            # The list has to name the origin, and the origin is not known until something
+            # has been deployed to it. That is the one reason to publish the template: to
+            # find out the name, once, and then fill it in.
+            if [ "${BOOTSTRAP:-}" = "true" ]; then
+              echo "::warning::publishing the template to find out the origin; fill it in and deploy again"
+            else
+              echo "::error::the callback list is still the template; fill in the real origin first"
+              exit 1
+            fi
           fi
           if grep -q REPLACE "$links"; then
             echo "::warning::assetlinks.json is still the template, so Android will not route the callback into the app. Internet Identity does not read this file, so the flow can still be exercised in the browser."
@@ -90,6 +102,8 @@ jobs:
           echo "origin=$origin" >> "$GITHUB_OUTPUT"
 
       - name: Read both documents back
+        # Nothing to read back when what went up is the template.
+        if: ${{ inputs.bootstrap != true }}
         env:
           ORIGIN: ${{ steps.target.outputs.origin }}
         run: bash scripts/check-callback-origin.sh "$ORIGIN" callback-origin/.well-known/ii-auth-callbacks
