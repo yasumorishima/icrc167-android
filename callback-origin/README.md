@@ -40,7 +40,11 @@ https://<user>.github.io/.well-known/apple-app-site-association
 
 ## Checking it
 
-The `well-known` job in `.github/workflows/ci.yml` measures a live origin — status, exact
-content type, CORS, and the shape of the JSON — rather than trusting that a deploy did what
-it looked like it did. It runs when the repository variable `CALLBACK_ORIGIN` is set to the
-origin, with no trailing slash.
+`scripts/check-callback-origin.sh` measures a live origin — status, exact content type,
+CORS, size, and the shape of the JSON — rather than trusting that a deploy did what it looked
+like it did. One copy, two callers:
+
+| workflow | when | extra |
+| --- | --- | --- |
+| `ci.yml`, job `well-known` | the repository variable `CALLBACK_ORIGIN` is set, with no trailing slash | — |
+| `deploy-callback-origin.yml` | after every deploy | also diffs the served callback list against the one in that commit, so a deploy that did not reach the origin cannot pass |
