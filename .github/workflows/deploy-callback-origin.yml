@@ -15,6 +15,10 @@ on:
         description: "First run only: publish the template to find out what the origin is"
         type: boolean
         default: false
+      disconnect_git:
+        description: "Detach the Vercel project from the repository before deploying"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -58,6 +62,23 @@ jobs:
           if grep -q REPLACE "$links"; then
             echo "::warning::assetlinks.json is still the template, so Android will not route the callback into the app. Internet Identity does not read this file, so the flow can still be exercised in the browser."
           fi
+
+      # Vercel connects a project to the repository by itself and then deploys the repository
+      # root on every push -- which served a 404 over the top of this origin on 2026-09-10,
+      # because the documents live in a subdirectory. That path has no template guard and
+      # reads nothing back, so there should not be two ways to reach production.
+      - name: Detach the project from the repository
+        if: ${{ inputs.disconnect_git == true }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
+        run: |
+          set -euo pipefail
+          cd callback-origin
+          scope=()
+          if [ -n "${VERCEL_SCOPE:-}" ]; then scope=(--scope "$VERCEL_SCOPE"); fi
+          npx --yes vercel@59.15.1 link --yes "${scope[@]}"
+          npx --yes vercel@59.15.1 git disconnect --yes "${scope[@]}"
 
       - name: Deploy
         id: deploy
