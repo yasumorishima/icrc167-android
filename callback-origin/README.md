@@ -48,3 +48,17 @@ like it did. One copy, two callers:
 | --- | --- | --- |
 | `ci.yml`, job `well-known` | the repository variable `CALLBACK_ORIGIN` is set, with no trailing slash | — |
 | `deploy-callback-origin.yml` | after every deploy | also diffs the served callback list against the one in that commit, so a deploy that did not reach the origin cannot pass |
+
+## Two ways to production is one too many
+
+Vercel connects a project to the repository on its own, and then deploys the **repository
+root** on every push. The documents here live in a subdirectory, so that path served a 404
+over the top of a working origin on 2026-09-10 -- caught because the check that runs after a
+deploy asked the origin what it was serving, and the answer had gone from 200 to NOT_FOUND
+between two merges.
+
+That path also has no template guard and reads nothing back. So the project is detached from
+the repository (`deploy-callback-origin.yml` has a one-shot `disconnect_git` input), and the
+only way to production is the workflow that checks its own work. If a Vercel check ever
+appears on a pull request again, the integration has been reconnected and should be detached
+again rather than worked around.
