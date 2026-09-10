@@ -29,6 +29,35 @@ public sealed interface QueryReply {
     ) : QueryReply
 }
 
+/** One node's signature over a query response. */
+public class NodeSignature(
+    public val timestamp: BigInteger,
+    signature: ByteArray,
+    public val nodeId: Principal,
+) {
+    private val signatureBytes = signature.copyOf()
+    public val signature: ByteArray get() = signatureBytes.copyOf()
+}
+
+/**
+ * A parsed query response, including what it takes to check it.
+ *
+ * [body] is kept because the signature covers a hash of the response *as sent*: rebuilding
+ * that map from the parsed fields would mean hashing this library's idea of the answer rather
+ * than the answer.
+ */
+public class QueryResponse internal constructor(
+    public val reply: QueryReply,
+    public val signatures: List<NodeSignature>,
+    internal val body: Map<String, CborItem>,
+)
+
+/** A request and the answer it got, kept together because verifying needs both. */
+public class QueryExchange(
+    public val request: SignedRequest,
+    public val response: QueryResponse,
+)
+
 public class IcAgentException(message: String) : RuntimeException(message)
 
 public class HttpResponse(public val status: Int, body: ByteArray) {
@@ -44,17 +73,11 @@ public fun interface Transport {
 /**
  * Calls a canister as [Identity].
  *
- * What this does **not** do, said plainly, because it decides what the answer is worth: a
- * query response carries a node signature, and the interface specification defines how to
- * check it -- `verify_node_signatures` over `\x0Bic-response`, against the node public keys
- * read from a *separate* `read_state` request for `/subnet`. This module does not do that. It
- * reads the reply and hands it over.
- *
- * So the round trip is an external check on a delegation chain **only as far as the node
- * answering is honest**. That is enough for what it is for -- asking a canister which
- * principal it sees, which nothing else here can do -- and it is not enough to read state you
- * intend to trust. The certificate verification the signature check would need already lives
- * in `icrc167-certificate`; wiring it to query responses is not done.
+ * This sends the request and reads the answer. It does not decide whether the answer is
+ * trustworthy: a query response carries a node signature, and checking that is
+ * [QueryResponseVerifier]'s job, with the subnet certificate [subnetCertificate] fetches.
+ * Nothing here refuses an unsigned or wrongly signed answer, so a caller that skips the
+ * verifier is trusting whatever replied.
  */
 public class IcAgent(
     private val host: String = MAINNET,
@@ -64,18 +87,15 @@ public class IcAgent(
     private val clock: () -> BigInteger = { systemNanos() },
 ) {
 
-    /** Builds the request without sending it. Exposed so its bytes can be measured. */
+    /** Builds the query request without sending it. Exposed so its bytes can be measured. */
     public fun queryRequest(
         canisterId: Principal,
         method: String,
         arg: ByteArray,
         identity: Identity,
         expiryNanos: BigInteger = clock() + ingressExpiry,
-    ): SignedRequest {
-        // One source for both maps. The request id has to hash exactly what goes on the wire,
-        // and two hand-written copies of the same six fields is how that quietly stops being
-        // true.
-        val content = CborItem.Dict(
+    ): SignedRequest = signedRequest(
+        CborItem.Dict(
             listOf(
                 text("request_type") to text("query"),
                 text("sender") to blob(identity.sender.bytes),
@@ -84,9 +104,39 @@ public class IcAgent(
                 text("arg") to blob(arg),
                 text("ingress_expiry") to CborItem.Uint(expiryNanos),
             ),
-        )
-        val requestId = ReprHash.ofMap(hashable(content))
+        ),
+        identity,
+    )
 
+    /**
+     * Builds a `read_state` request.
+     *
+     * The canister id is in the URL and not in the content, which is not an oversight: the
+     * specification puts the effective canister id in the path for this endpoint.
+     */
+    public fun readStateRequest(
+        paths: List<List<ByteArray>>,
+        identity: Identity,
+        expiryNanos: BigInteger = clock() + ingressExpiry,
+    ): SignedRequest = signedRequest(
+        CborItem.Dict(
+            listOf(
+                text("request_type") to text("read_state"),
+                text("sender") to blob(identity.sender.bytes),
+                text("paths") to CborItem.Arr(
+                    paths.map { path -> CborItem.Arr(path.map { blob(it) }) },
+                ),
+                text("ingress_expiry") to CborItem.Uint(expiryNanos),
+            ),
+        ),
+        identity,
+    )
+
+    private fun signedRequest(content: CborItem.Dict, identity: Identity): SignedRequest {
+        // One source for both maps. The request id has to hash exactly what goes on the wire,
+        // and a second hand-written copy of the same fields is how that quietly stops being
+        // true.
+        val requestId = ReprHash.ofMap(content.toReprFields())
         val envelope = ArrayList<Pair<CborItem, CborItem>>()
         envelope.add(text("content") to content)
         val auth = identity.authenticate(requestId)
@@ -100,51 +150,102 @@ public class IcAgent(
         return SignedRequest(requestId, AgentCbor.encode(CborItem.Dict(envelope)))
     }
 
-    /** Sends a query and returns whatever the canister answered. */
+    /** Sends a query and returns the request and the answer together. */
+    public fun exchange(
+        canisterId: Principal,
+        method: String,
+        arg: ByteArray,
+        identity: Identity,
+    ): QueryExchange {
+        val request = queryRequest(canisterId, method, arg, identity)
+        val body = send("canister/" + canisterId.toText() + "/query", request.body)
+        return QueryExchange(request, parseResponse(body))
+    }
+
+    /** Sends a query and returns whatever the canister answered, unchecked. */
     public fun query(
         canisterId: Principal,
         method: String,
         arg: ByteArray,
         identity: Identity,
-    ): QueryReply {
-        val request = queryRequest(canisterId, method, arg, identity)
-        val url = "$host/api/$apiVersion/canister/${canisterId.toText()}/query"
-        val response = transport.post(url, request.body)
-        if (response.status != 200) {
-            // The replica answers a malformed or badly signed request with plain text, and
-            // it names what it disliked. Passing that through is the difference between a
-            // fixable failure and a silent one.
-            throw IcAgentException(
-                "the replica answered ${response.status}: ${describe(response.body)}",
-            )
-        }
-        return parseReply(response.body)
+    ): QueryReply = exchange(canisterId, method, arg, identity).response.reply
+
+    /**
+     * Fetches the certificate that proves which nodes may speak for the subnet [canisterId]
+     * lives on, which is what a response signature is checked against.
+     *
+     * The specification requires this to be a separate request: the answer being checked
+     * cannot also carry the thing that certifies it.
+     */
+    public fun subnetCertificate(
+        canisterId: Principal,
+        identity: Identity = AnonymousIdentity,
+    ): ByteArray {
+        val request = readStateRequest(listOf(listOf(SUBNET_LABEL)), identity)
+        val body = send("canister/" + canisterId.toText() + "/read_state", request.body)
+        val fields = AgentCbor.textMap(AgentCbor.untag(AgentCbor.decode(body)))
+            ?: throw IcAgentException("the read_state answer is not a map with text keys")
+        return (fields["certificate"] as? CborItem.Blob)?.bytes
+            ?: throw IcAgentException("the read_state answer carries no certificate")
     }
 
     /**
      * Asks a canister which principal it attributes the call to.
      *
-     * The canister has to export `whoami : () -> (principal) query`. The one DFINITY runs at
-     * `kvusz-kaaaa-aaaad-aabwa-cai` does.
+     * The canister has to export whoami as a query returning a principal. The one DFINITY
+     * runs at kvusz-kaaaa-aaaad-aabwa-cai does. The answer is not checked -- see the class
+     * comment, and [verifiedWhoami].
      */
     public fun whoami(canisterId: Principal, identity: Identity): Principal =
-        when (val reply = query(canisterId, "whoami", Candid.EMPTY_ARGS, identity)) {
-            is QueryReply.Replied -> Candid.decodePrincipal(reply.arg)
-            is QueryReply.Rejected ->
-                throw IcAgentException("whoami was rejected (${reply.rejectCode}): ${reply.message}")
-        }
+        principalOf(query(canisterId, "whoami", Candid.EMPTY_ARGS, identity))
 
-    /** Parses a query response body. Public so recorded replies can be replayed against it. */
-    public fun parseReply(bytes: ByteArray): QueryReply {
+    /** [whoami], with the node signature checked against the subnet certificate. */
+    public fun verifiedWhoami(
+        canisterId: Principal,
+        identity: Identity,
+        verifier: QueryResponseVerifier,
+    ): Principal {
+        val exchange = exchange(canisterId, "whoami", Candid.EMPTY_ARGS, identity)
+        val certificate = subnetCertificate(canisterId)
+        val check = verifier.verify(canisterId, exchange, certificate)
+        if (check is ResponseVerification.Invalid) {
+            throw IcAgentException("the answer is not signed for this subnet: " + check.reason)
+        }
+        return principalOf(exchange.response.reply)
+    }
+
+    private fun principalOf(reply: QueryReply): Principal = when (reply) {
+        is QueryReply.Replied -> Candid.decodePrincipal(reply.arg)
+        is QueryReply.Rejected ->
+            throw IcAgentException("whoami was rejected (" + reply.rejectCode + "): " + reply.message)
+    }
+
+    private fun send(path: String, body: ByteArray): ByteArray {
+        val url = host + "/api/" + apiVersion + "/" + path
+        val response = transport.post(url, body)
+        if (response.status != 200) {
+            // The replica answers a malformed or badly signed request with plain text, and
+            // it names what it disliked. Passing that through is the difference between a
+            // fixable failure and a silent one.
+            throw IcAgentException(
+                "the replica answered " + response.status + ": " + describe(response.body),
+            )
+        }
+        return response.body
+    }
+
+    /** Parses a query response body. Public so recorded answers can be replayed against it. */
+    public fun parseResponse(bytes: ByteArray): QueryResponse {
         val body = AgentCbor.textMap(AgentCbor.untag(AgentCbor.decode(bytes)))
             ?: throw IcAgentException("the reply is not a map with text keys")
         val status = (body["status"] as? CborItem.Text)?.value
             ?: throw IcAgentException("the reply carries no status")
-        return when (status) {
+        val reply = when (status) {
             "replied" -> {
-                val reply = AgentCbor.textMap(body["reply"] ?: throw IcAgentException("replied without a reply"))
-                    ?: throw IcAgentException("the reply field is not a map")
-                val arg = (reply["arg"] as? CborItem.Blob)?.bytes
+                val replied = AgentCbor.textMap(
+                    body["reply"] ?: throw IcAgentException("replied without a reply"),
+                ) ?: throw IcAgentException("the reply field is not a map")
+                val arg = (replied["arg"] as? CborItem.Blob)?.bytes
                     ?: throw IcAgentException("the reply carries no arg blob")
                 QueryReply.Replied(arg)
             }
@@ -157,7 +258,31 @@ public class IcAgent(
                     ?: throw IcAgentException("a rejection without a reject_message"),
                 errorCode = (body["error_code"] as? CborItem.Text)?.value,
             )
-            else -> throw IcAgentException("unknown status: $status")
+            else -> throw IcAgentException("unknown status: " + status)
+        }
+        return QueryResponse(reply, parseSignatures(body["signatures"]), body)
+    }
+
+    /** [parseResponse], keeping only the answer. */
+    public fun parseReply(bytes: ByteArray): QueryReply = parseResponse(bytes).reply
+
+    private fun parseSignatures(item: CborItem?): List<NodeSignature> {
+        if (item == null) return emptyList()
+        val entries = (item as? CborItem.Arr)?.items
+            ?: throw IcAgentException("signatures is not an array")
+        return entries.map { entry ->
+            val fields = AgentCbor.textMap(entry)
+                ?: throw IcAgentException("a signature entry is not a map with text keys")
+            NodeSignature(
+                timestamp = (fields["timestamp"] as? CborItem.Uint)?.value
+                    ?: throw IcAgentException("a signature without a timestamp"),
+                signature = (fields["signature"] as? CborItem.Blob)?.bytes
+                    ?: throw IcAgentException("a signature without a signature"),
+                nodeId = Principal.ofBytes(
+                    (fields["identity"] as? CborItem.Blob)?.bytes
+                        ?: throw IcAgentException("a signature without an identity"),
+                ),
+            )
         }
     }
 
@@ -179,27 +304,6 @@ public class IcAgent(
         )
     }
 
-    /** The content map in the form the request-id hash takes. */
-    private fun hashable(content: CborItem.Dict): Map<String, ReprHash.Value> {
-        val fields = LinkedHashMap<String, ReprHash.Value>(content.entries.size)
-        content.entries.forEach { (key, value) ->
-            val name = (key as? CborItem.Text)?.value
-                ?: throw IcAgentException("a request field is not named by text")
-            fields[name] = reprValue(value)
-        }
-        return fields
-    }
-
-    private fun reprValue(item: CborItem): ReprHash.Value = when (item) {
-        is CborItem.Text -> ReprHash.Value.Text(item.value)
-        is CborItem.Blob -> ReprHash.Value.Blob(item.bytes)
-        is CborItem.Uint -> ReprHash.Value.Nat(item.value)
-        is CborItem.Arr -> ReprHash.Value.Arr(item.items.map { reprValue(it) })
-        // A request content map holds none of these, and the specification hashes nested maps
-        // by a different rule. Refusing beats hashing something else.
-        else -> throw IcAgentException("no request-id hash is defined for this value")
-    }
-
     private fun text(value: String): CborItem = CborItem.Text(value)
 
     private fun blob(value: ByteArray): CborItem = CborItem.Blob(value)
@@ -212,11 +316,13 @@ public class IcAgent(
         public const val MAINNET: String = "https://icp-api.io"
 
         /**
-         * `/api/v2/.../query` still answers -- measured on 2026-09-10 -- but the interface
+         * The v2 query path still answers -- measured on 2026-09-10 -- but the interface
          * specification marks it deprecated in favour of v3.
          */
         public const val CURRENT_API_VERSION: String = "v3"
 
         public val FOUR_MINUTES: BigInteger = BigInteger.valueOf(4L * 60 * 1_000_000_000L)
+
+        internal val SUBNET_LABEL: ByteArray = "subnet".toByteArray(Charsets.UTF_8)
     }
 }

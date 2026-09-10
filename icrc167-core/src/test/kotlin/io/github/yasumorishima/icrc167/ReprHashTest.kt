@@ -3,6 +3,7 @@ package io.github.yasumorishima.icrc167
 import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 /**
  * Known answers taken from the IC interface specification.
@@ -40,14 +41,17 @@ class ReprHashTest {
     }
 
     @Test
-    fun `hashes nested maps by recursion`() {
-        // hash_of_map({ "reply": { "arg": "DIDL\x00\x00" } }) — the specification's other
-        // worked example, checked here for shape rather than for a published digest.
-        val inner = ReprHash.ofMap(
-            mapOf("arg" to ReprHash.Value.Blob(byteArrayOf(0x44, 0x49, 0x44, 0x4C, 0x00, 0x00))),
-        )
-        val outer = ReprHash.ofMap(mapOf("reply" to ReprHash.Value.Blob(inner)))
-        assertEquals(32, outer.size)
+    fun `a nested map hashes to its own digest, not to a hash of it`() {
+        // The distinction this test exists for: a map value contributes ofMap(fields) as it
+        // stands. Wrapping that digest in a Blob hashes it a second time and produces a
+        // different, wrong answer - measured against a live node signature, which accepts the
+        // first and refuses the second (see the agent module response-hash vector).
+        val arg = byteArrayOf(0x44, 0x49, 0x44, 0x4C, 0x00, 0x00)
+        val inner = mapOf("arg" to ReprHash.Value.Blob(arg))
+        val nested = ReprHash.ofMap(mapOf("reply" to ReprHash.Value.Map(inner)))
+        val rehashed = ReprHash.ofMap(mapOf("reply" to ReprHash.Value.Blob(ReprHash.ofMap(inner))))
+        assertEquals(32, nested.size)
+        assertNotEquals(nested.toHex(), rehashed.toHex())
     }
 
     @Test

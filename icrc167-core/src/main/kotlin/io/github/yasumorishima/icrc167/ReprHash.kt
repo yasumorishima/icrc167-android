@@ -12,12 +12,22 @@ import java.security.MessageDigest
  */
 public object ReprHash {
 
-    /** The subset of IC value shapes a delegation map can contain. */
+    /** The IC value shapes that appear in the maps this transport hashes. */
     public sealed interface Value {
         public class Blob(public val bytes: ByteArray) : Value
         public class Text(public val value: String) : Value
         public class Nat(public val value: BigInteger) : Value
         public class Arr(public val items: List<Value>) : Value
+
+        /**
+         * A map inside a map, as a query response carries (`reply: { arg: ... }`).
+         *
+         * It hashes to [ofMap] of its own fields, and that digest is used **as it stands**.
+         * Wrapping it in a [Blob] instead would hash it a second time, which is a plausible
+         * enough mistake that it is worth naming: measured against a real node signature on
+         * 2026-09-10, the direct digest verifies and the blob-wrapped one is refused.
+         */
+        public class Map(public val fields: kotlin.collections.Map<String, Value>) : Value
     }
 
     public fun nat(value: Long): Value.Nat = Value.Nat(BigInteger.valueOf(value))
@@ -41,6 +51,8 @@ public object ReprHash {
         is Value.Text -> sha256(value.value.toByteArray(Charsets.UTF_8))
         is Value.Nat -> sha256(Leb128.encodeUnsigned(value.value))
         is Value.Arr -> sha256(*value.items.map { hashValue(it) }.toTypedArray())
+        // No sha256 here, deliberately. See Value.Map.
+        is Value.Map -> ofMap(value.fields)
     }
 
     private fun sha256(vararg parts: ByteArray): ByteArray {

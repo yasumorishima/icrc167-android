@@ -17,3 +17,24 @@ calls used, and mainnet would refuse it outright: it is a constant chosen for th
 while the live calls used an expiry a few minutes ahead of the moment they were sent. The unfixed version of exactly those three envelopes
 was accepted by mainnet on the same day, and a fourth with the signature moved to the wrong
 key was refused with `Invalid signature` -- so the shape is measured, not assumed.
+
+## The response-signature vectors
+
+Captured the same way on 2026-09-10, by the same throwaway script, and they are what makes
+`ResponseVerificationTest` a measurement rather than a restatement.
+
+| file | what it is |
+| --- | --- |
+| `signed-request.hex` | the envelope of an anonymous `whoami` query |
+| `signed-request-id.hex` | the request id of that content, computed independently |
+| `signed-reply.cbor` | the answer, including the node signature |
+| `subnet-certificate.cbor` | the certificate from a separate `read_state` of `/subnet`, carrying the node public keys |
+| `response-hash.hex` | the digest the node signature covers, computed independently |
+| `rejected-*` | the same five for a call to a method that does not exist |
+
+The rejected set exists to settle one question the specification leaves open by wording:
+`error_code` is optional, and the live signature verifies **only** when it is included in the
+hashed map. Nothing here expires cryptographically -- the BLS signature over a certificate stays valid --
+but the verifier refuses answers that are not recent, so the tests run it with the clock set
+to the moment each answer was signed. A recording that verified without that would mean the
+recency check was not there.
