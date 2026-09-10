@@ -106,12 +106,14 @@ jobs:
           mkdir -p dex
           unzip -o -q probe/build/outputs/apk/debug/probe-debug.apk 'classes*.dex' -d dex
           for f in dex/classes*.dex; do "$dexdump" -d "$f"; done > dex/dump.txt
-          # Without MIRACL in the APK the absence below would prove nothing.
-          if ! grep -q "Lorg/miracl/core/BLS12381/BIG;" dex/dump.txt; then
-            echo "::error::MIRACL is not in the APK, so this check would prove nothing"
+          # A call into MIRACL, in the same class-then-dot-then-method form the check below
+          # looks for. A class definition alone would not show that form, and without it the
+          # absence below would prove nothing: MIRACL missing, or references printed otherwise.
+          if ! grep -qF "Lorg/miracl/core/BLS12381/BIG;." dex/dump.txt; then
+            echo "::error::no call into MIRACL in the form this check reads, so its absence test would prove nothing"
             exit 1
           fi
-          if grep -q "Ljava/lang/Math;.multiplyHigh" dex/dump.txt; then
+          if grep -qF "Ljava/lang/Math;.multiplyHigh" dex/dump.txt; then
             echo "::error::the APK calls Math.multiplyHigh, which does not exist below API 31"
             exit 1
           fi
