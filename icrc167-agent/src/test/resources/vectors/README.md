@@ -34,5 +34,7 @@ Captured the same way on 2026-09-10, by the same throwaway script, and they are 
 
 The rejected set exists to settle one question the specification leaves open by wording:
 `error_code` is optional, and the live signature verifies **only** when it is included in the
-hashed map. The certificate is not time-limited, so these keep verifying: what expires is the
-`ingress_expiry` inside the request, which no longer matters once the answer is recorded.
+hashed map. Nothing here expires cryptographically -- the BLS signature over a certificate stays valid --
+but the verifier refuses answers that are not recent, so the tests run it with the clock set
+to the moment each answer was signed. A recording that verified without that would mean the
+recency check was not there.

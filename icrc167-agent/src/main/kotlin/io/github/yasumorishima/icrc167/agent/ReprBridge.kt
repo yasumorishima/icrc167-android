@@ -15,10 +15,16 @@ internal fun CborItem.toReprValue(): ReprHash.Value = when (this) {
     is CborItem.Uint -> ReprHash.Value.Nat(value)
     is CborItem.Arr -> ReprHash.Value.Arr(items.map { it.toReprValue() })
     is CborItem.Dict -> ReprHash.Value.Map(
-        entries.associate { (key, value) ->
-            val name = (key as? CborItem.Text)?.value
-                ?: throw IcAgentException("a map field is not named by text")
-            name to value.toReprValue()
+        LinkedHashMap<String, ReprHash.Value>(entries.size).also { fields ->
+            for ((key, value) in entries) {
+                val name = (key as? CborItem.Text)?.value
+                    ?: throw IcAgentException("a map field is not named by text")
+                // Refused rather than resolved, the same way AgentCbor.textMap does: a map
+                // with the field twice hashes to whichever one the reader happened to keep.
+                if (fields.put(name, value.toReprValue()) != null) {
+                    throw IcAgentException("a map gives the field " + name + " twice")
+                }
+            }
         },
     )
     // A tag has no defined hash and nothing that gets hashed carries one.

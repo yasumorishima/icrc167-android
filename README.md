@@ -233,9 +233,12 @@ signature refuses it. **`error_code`** is optional in a rejection and is part of
 signed when it is present. And a subnet certificate has no expiry of its own, which is why the
 recorded exchanges in the tests still verify to the root key with the real pairing.
 
-What this still does not decide is **age**: the specification names no window for a query
-signature, so the timestamp is handed back rather than judged. A caller that cares about
-replay has to say what is too old.
+**Age is part of the check.** The specification requires every timestamp — the signatures,
+the certificate, its delegation — to be recent enough, and fixes no number; five minutes is
+the window here, the one agent-rs uses, and it is a constructor argument. Without it a
+captured answer replays for ever and a stale certificate keeps a rotated-out node
+authoritative. This is also why the recorded exchanges in the tests are verified with the
+clock set to the moment they were signed.
 
 
 ## What you have to host

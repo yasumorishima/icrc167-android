@@ -3,8 +3,12 @@ package io.github.yasumorishima.icrc167.agent
 import io.github.yasumorishima.icrc167.Principal
 import io.github.yasumorishima.icrc167.ReprHash
 import io.github.yasumorishima.icrc167.canistersig.MiraclBls
+import io.github.yasumorishima.icrc167.certificate.Certificate
 import io.github.yasumorishima.icrc167.certificate.CertificateVerifier
+import io.github.yasumorishima.icrc167.certificate.Lookup
+import io.github.yasumorishima.icrc167.certificate.lookupPath
 import io.github.yasumorishima.icrc167.crypto.StandardSignatureVerifier
+import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -12,17 +16,15 @@ import kotlin.test.assertTrue
 /**
  * Recorded exchanges from mainnet, checked all the way to the network root key.
  *
- * The BLS pairing here is the real one and the certificate is the one the network issued, so
- * nothing in this file is stubbed except the transport. The signature over a certificate does
- * not expire, so a recording keeps working.
+ * The BLS pairing here is the real one and the certificates are the ones the network issued,
+ * so nothing is stubbed except the transport and the clock. The clock has to be: the verifier
+ * refuses stale answers, and a recording is stale the moment it is a recording, so each test
+ * runs it at the time the answer was signed.
  */
 class ResponseVerificationTest {
 
     private val canister = Principal.fromText("kvusz-kaaaa-aaaad-aabwa-cai")
-    private val verifier = QueryResponseVerifier(
-        CertificateVerifier(MiraclBls),
-        StandardSignatureVerifier(),
-    )
+    private val ledger = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")
     private val offline = IcAgent(transport = Transport { _, _ -> error("this test sends nothing") })
 
     private fun exchangeOf(
@@ -38,6 +40,32 @@ class ResponseVerificationTest {
         return QueryExchange(SignedRequest(requestId, envelope), response)
     }
 
+    /** A verifier whose idea of now is the moment the recorded answer was signed. */
+    private fun verifierAt(
+        exchange: QueryExchange,
+        skew: BigInteger = BigInteger.ZERO,
+        rootKeyRaw: ByteArray? = null,
+        rootSubnetId: Principal? = QueryResponseVerifier.MAINNET_ROOT_SUBNET,
+    ): QueryResponseVerifier {
+        val signed = exchange.response.signatures.first().timestamp
+        val certificates = if (rootKeyRaw == null) {
+            CertificateVerifier(MiraclBls)
+        } else {
+            CertificateVerifier(MiraclBls, rootPublicKeyRaw = rootKeyRaw)
+        }
+        return QueryResponseVerifier(
+            certificates,
+            StandardSignatureVerifier(),
+            rootSubnetId = rootSubnetId,
+            clock = { signed + skew },
+        )
+    }
+
+    private fun reasonOf(checked: ResponseVerification): String {
+        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
+        return (checked as ResponseVerification.Invalid).reason
+    }
+
     @Test
     fun `the request id is the one an independent implementation computed`() {
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
@@ -48,16 +76,18 @@ class ResponseVerificationTest {
     fun `the digest the node signed is the one an independent implementation computed`() {
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
         val signature = exchange.response.signatures.single()
-        assertEquals(vectorText("response-hash.hex"), verifier.coveredHash(exchange, signature).toHex())
+        assertEquals(
+            vectorText("response-hash.hex"),
+            verifierAt(exchange).coveredHash(exchange, signature).toHex(),
+        )
     }
 
     @Test
     fun `a recorded answer verifies to the network root key`() {
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
-        val checked = verifier.verify(canister, exchange, vector("subnet-certificate.cbor"))
+        val checked = verifierAt(exchange).verify(canister, exchange, vector("subnet-certificate.cbor"))
         assertTrue(checked is ResponseVerification.Valid, checked.toString())
-        val valid = checked as ResponseVerification.Valid
-        assertEquals(exchange.response.signatures.single().nodeId.toText(), valid.nodeId.toText())
+        assertEquals(1, (checked as ResponseVerification.Valid).signatures.size)
     }
 
     @Test
@@ -68,10 +98,52 @@ class ResponseVerificationTest {
         val signature = exchange.response.signatures.single()
         assertEquals(
             vectorText("rejected-response-hash.hex"),
-            verifier.coveredHash(exchange, signature).toHex(),
+            verifierAt(exchange).coveredHash(exchange, signature).toHex(),
         )
-        val checked = verifier.verify(canister, exchange, vector("rejected-subnet-certificate.cbor"))
+        val checked = verifierAt(exchange)
+            .verify(canister, exchange, vector("rejected-subnet-certificate.cbor"))
         assertTrue(checked is ResponseVerification.Valid, checked.toString())
+    }
+
+    @Test
+    fun `an answer from the root subnet needs no delegation, and is still bound to the canister`() {
+        // The certificate here carries no delegation, so nothing names the subnet: the root
+        // subnet has to be the one asked for, and it has to cover the canister. The root
+        // state tree holds the node keys of every subnet, so without that binding a genuine
+        // root certificate would authorise any node anywhere to answer for anything.
+        val exchange = exchangeOf("root-subnet-request.hex", "root-subnet-reply.cbor")
+        val certificate = vector("root-subnet-certificate.cbor")
+        assertTrue(exchange.response.reply is QueryReply.Rejected)
+        val checked = verifierAt(exchange).verify(ledger, exchange, certificate)
+        assertTrue(checked is ResponseVerification.Valid, checked.toString())
+
+        // The same certificate, asked about a canister on another subnet.
+        assertTrue(
+            reasonOf(verifierAt(exchange).verify(canister, exchange, certificate))
+                .contains("does not cover"),
+        )
+        // And with no root subnet configured there is nothing to bind it to.
+        assertTrue(
+            reasonOf(verifierAt(exchange, rootSubnetId = null).verify(ledger, exchange, certificate))
+                .contains("no root subnet id"),
+        )
+    }
+
+    @Test
+    fun `an answer that is not recent enough is refused`() {
+        val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor")
+        val certificate = vector("subnet-certificate.cbor")
+        val tenMinutes = BigInteger.valueOf(10L * 60 * 1_000_000_000L)
+        // The specification requires recency and fixes no window, so this is the one thing
+        // here that is a choice rather than a measurement -- and it has to bite.
+        assertTrue(
+            reasonOf(verifierAt(exchange, skew = tenMinutes).verify(canister, exchange, certificate))
+                .contains("recent enough"),
+        )
+        assertTrue(
+            reasonOf(verifierAt(exchange, skew = tenMinutes.negate()).verify(canister, exchange, certificate))
+                .contains("recent enough"),
+        )
     }
 
     @Test
@@ -84,19 +156,17 @@ class ResponseVerificationTest {
         val at = didl + 9
         tampered[at] = (tampered[at] + 1).toByte()
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor", reply = tampered)
-        val checked = verifier.verify(canister, exchange, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
-        assertTrue((checked as ResponseVerification.Invalid).reason.contains("did not sign"))
+        val checked = verifierAt(exchange).verify(canister, exchange, vector("subnet-certificate.cbor"))
+        assertTrue(reasonOf(checked).contains("did not sign"))
     }
 
     @Test
     fun `the answer has to match the request it is paired with`() {
         val real = exchangeOf("signed-request.hex", "signed-reply.cbor")
         val other = exchangeOf("rejected-request.hex", "rejected-signed-reply.cbor")
-        // The right answer under the wrong request id: the covered hash carries the id.
         val crossed = QueryExchange(other.request, real.response)
-        val checked = verifier.verify(canister, crossed, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
+        val checked = verifierAt(crossed).verify(canister, crossed, vector("subnet-certificate.cbor"))
+        assertTrue(reasonOf(checked).contains("did not sign"))
     }
 
     @Test
@@ -112,9 +182,8 @@ class ResponseVerificationTest {
             real.request,
             QueryResponse(real.response.reply, listOf(stranger), real.response.body),
         )
-        val checked = verifier.verify(canister, swapped, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
-        assertTrue((checked as ResponseVerification.Invalid).reason.contains("does not have node"))
+        val checked = verifierAt(swapped).verify(canister, swapped, vector("subnet-certificate.cbor"))
+        assertTrue(reasonOf(checked).contains("does not have node"))
     }
 
     @Test
@@ -124,31 +193,45 @@ class ResponseVerificationTest {
             real.request,
             QueryResponse(real.response.reply, emptyList(), real.response.body),
         )
+        val verifier = verifierAt(real)
         val checked = verifier.verify(canister, unsigned, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
-        assertTrue((checked as ResponseVerification.Invalid).reason.contains("no signature"))
+        assertTrue(reasonOf(checked).contains("no signature"))
     }
 
     @Test
     fun `a certificate for another canister does not certify this one`() {
         val real = exchangeOf("signed-request.hex", "signed-reply.cbor")
-        // The management canister is not on this subnet, so the delegation does not cover it.
+        // Not on this subnet, so the delegation does not cover it.
         val elsewhere = Principal.fromText("aaaaa-aa")
-        val checked = verifier.verify(elsewhere, real, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
+        val checked = verifierAt(real).verify(elsewhere, real, vector("subnet-certificate.cbor"))
+        assertTrue(reasonOf(checked).startsWith("the subnet certificate:"))
     }
 
     @Test
-    fun `another root key does not certify this subnet`() {
-        // The one negative that the pairing itself has to answer. Every other case here fails
-        // earlier -- at the canister ranges, at the node lookup, at the Ed25519 signature --
-        // so a BLS verifier that always said yes would go unnoticed without this.
+    fun `a genuine BLS key that is not the root key does not certify this subnet`() {
+        // The one case only the pairing can answer. A key of the wrong shape would be turned
+        // away by the decoder before any arithmetic happened, so this uses a real subnet key
+        // out of the certificate itself: it decodes, it is in the subgroup, and it is not the
+        // key that signed.
         val real = exchangeOf("signed-request.hex", "signed-reply.cbor")
-        val elsewhere = QueryResponseVerifier(
-            CertificateVerifier(MiraclBls, rootPublicKeyRaw = ByteArray(96) { 0x11 }),
-            StandardSignatureVerifier(),
+        val checked = verifierAt(real, rootKeyRaw = subnetKeyRaw())
+            .verify(canister, real, vector("subnet-certificate.cbor"))
+        assertTrue(reasonOf(checked).startsWith("the subnet certificate:"))
+    }
+
+    /** The 96 raw bytes of the delegated subnet key, read out of the recorded certificate. */
+    private fun subnetKeyRaw(): ByteArray {
+        val outer = Certificate.fromCbor(vector("subnet-certificate.cbor"))
+        val delegation = checkNotNull(outer.delegation)
+        val inner = Certificate.fromCbor(delegation.certificate)
+        val found = inner.tree.lookupPath(
+            listOf(
+                "subnet".toByteArray(Charsets.UTF_8),
+                delegation.subnetId,
+                "public_key".toByteArray(Charsets.UTF_8),
+            ),
         )
-        val checked = elsewhere.verify(canister, real, vector("subnet-certificate.cbor"))
-        assertTrue(checked is ResponseVerification.Invalid, checked.toString())
+        val der = (found as Lookup.Found).value
+        return der.copyOfRange(der.size - 96, der.size)
     }
 }
