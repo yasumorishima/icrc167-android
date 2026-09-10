@@ -28,6 +28,7 @@ real passkey on a real device.
 | Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Checking the node signature on a query response | done, verified to the network root key |
+| Callback origin (the two well-known documents) | live, and read back on every deploy |
 | Demo app | not yet |
 
 ### Modules
@@ -253,6 +254,14 @@ The callback origin must serve, without redirects:
   callback URL. Internet Identity refuses the flow if this does not match byte for byte.
 - `/.well-known/assetlinks.json` — Digital Asset Links, so Android verifies the app owns the
   domain and routes the callback to it instead of leaving it in the browser.
+
+This one is live at `https://callback-origin.vercel.app`, deployed from `callback-origin/` by
+`.github/workflows/deploy-callback-origin.yml`. Two things about the host were measured rather
+than assumed on 2026-09-10: Vercel does serve a dot-directory, and the per-deployment URL and
+the team-scoped one both answer `302` (deployment protection), which the signer refuses — only
+the stable project domain works. The `assetlinks.json` there is still a template, because
+there is no app to fingerprint yet; Internet Identity does not read that file, so the browser
+half of the flow does not wait for it.
 
 Both are read back rather than trusted: `scripts/check-callback-origin.sh` fetches them the
 way the signer and the platform do, and two workflows call it — the CI job `well-known`,
