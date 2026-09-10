@@ -96,8 +96,11 @@ jobs:
           set -euo pipefail
           origin="$CONFIGURED"
           if [ -z "$origin" ]; then
-            origin="$DEPLOYED"
-            echo "::warning::CALLBACK_ORIGIN is not set, so this measures the deployment URL rather than the origin the signer will fetch"
+            # Measured 2026-09-10: the per-deployment URL and the team-scoped one both answer
+            # 302 (deployment protection), and the signer refuses a redirect. Only the stable
+            # project domain serves these documents, so there is nothing else to measure.
+            echo "::error::set the repository variable CALLBACK_ORIGIN to the stable origin"
+            exit 1
           fi
           echo "origin=$origin" >> "$GITHUB_OUTPUT"
 

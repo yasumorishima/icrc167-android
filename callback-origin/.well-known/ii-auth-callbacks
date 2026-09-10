@@ -1,3 +1,5 @@
 {
-  "callbacks": ["https://REPLACE-WITH-YOUR-ORIGIN/icrc167-callback"]
+  "callbacks": [
+    "https://callback-origin.vercel.app/icrc167-callback"
+  ]
 }
