@@ -76,9 +76,12 @@ class ResponseVerificationTest {
 
     @Test
     fun `one byte of the answer changed, and it is no longer signed`() {
-        // The last byte of the reply argument is the principal itself.
+        // Inside the Candid argument, not at the end of the file: the last byte there is the
+        // break of an indefinite-length map, and moving it breaks the framing instead of the
+        // answer. A negative test that dies before the check it is named for proves nothing.
         val tampered = vector("signed-reply.cbor")
-        val at = tampered.size - 1
+        val didl = tampered.toHex().indexOf("4449444c") / 2
+        val at = didl + 9
         tampered[at] = (tampered[at] + 1).toByte()
         val exchange = exchangeOf("signed-request.hex", "signed-reply.cbor", reply = tampered)
         val checked = verifier.verify(canister, exchange, vector("subnet-certificate.cbor"))
