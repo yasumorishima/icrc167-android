@@ -1,0 +1,45 @@
+name: Live IC
+
+# Everything in CI measures bytes against recorded fixtures, which cannot notice the network
+# changing its mind. This can: it signs three envelopes and sends them to mainnet. No secrets,
+# no identity, no cycles -- a query to a public canister is free and unauthenticated to make.
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: "Why this run was started"
+        required: false
+  schedule:
+    # Mondays, 12:00 JST.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  round-trip:
+    name: whoami against mainnet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.13"
+
+      - name: Anonymous, self-signed and delegated
+        run: gradle --no-daemon :icrc167-agent:test --tests "*LiveIcTest*" -Dicrc167.live=1
+
+      - name: Upload the report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-ic-report
+          path: icrc167-agent/build/reports/tests/test
+          retention-days: 7
