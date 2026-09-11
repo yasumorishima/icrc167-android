@@ -19,12 +19,13 @@
         android:label="ICRC-167 demo">
 
         <!--
-          Rotation must not restart the activity: a call in flight would report into a screen
-          that no longer exists, and repeating the check needs a fresh sign-in.
+          No configuration change (rotation, dark mode, font size, language) may restart the
+          activity: a call in flight would report into a screen that no longer exists, and
+          repeating the check needs a fresh sign-in.
         -->
         <activity
             android:name=".DemoActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection"
             android:exported="true"
             android:launchMode="singleTask">
 

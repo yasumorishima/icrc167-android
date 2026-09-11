@@ -42,6 +42,8 @@ class DemoActivity : Activity() {
     private val client by lazy { Icrc167Client(this, CALLBACK_URL) }
     private val network: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
+    private lateinit var signIn: Button
+    private lateinit var signOut: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,11 +51,11 @@ class DemoActivity : Activity() {
             textSize = 16f
             setTextIsSelectable(true)
         }
-        val signIn = Button(this).apply {
+        signIn = Button(this).apply {
             text = "Sign in with Internet Identity"
             setOnClickListener { client.launch(this@DemoActivity) }
         }
-        val signOut = Button(this).apply {
+        signOut = Button(this).apply {
             text = "Sign out"
             setOnClickListener {
                 client.signOut()
@@ -112,17 +114,32 @@ class DemoActivity : Activity() {
         }
         status.text = ""
         say("Checking the answer...")
+        busy(true)
         // Checking a real chain means BLS pairings, a Keystore round trip and calls to the
         // network, none of which belong on the thread that draws the screen.
         network.execute {
-            when (val outcome = client.handleRedirect(intent)) {
-                is AuthOutcome.Success -> confirm(outcome)
-                // Shown verbatim: this app is where a live canister signature is first
-                // checked, and the reason is what says which part refused it.
-                is AuthOutcome.Failed -> report("FAIL  sign-in refused: " + outcome.reason)
-                AuthOutcome.NotOurs -> report("That link is not an answer to a sign-in started here.")
+            try {
+                when (val outcome = client.handleRedirect(intent)) {
+                    is AuthOutcome.Success -> confirm(outcome)
+                    // Shown verbatim: this app is where a live canister signature is first
+                    // checked, and the reason is what says which part refused it.
+                    is AuthOutcome.Failed -> report("FAIL  sign-in refused: " + outcome.reason)
+                    AuthOutcome.NotOurs -> report("That link is not an answer to a sign-in started here.")
+                }
+            } finally {
+                runOnUiThread { busy(false) }
             }
         }
+    }
+
+    /**
+     * A second sign-in started while this one is being checked would replace the pending
+     * session key underneath it, and the check would then sign with a key the chain does not
+     * name. So the buttons wait.
+     */
+    private fun busy(checking: Boolean) {
+        signIn.isEnabled = !checking
+        signOut.isEnabled = !checking
     }
 
     /** Runs on the network thread. */
@@ -142,7 +159,7 @@ class DemoActivity : Activity() {
 
         val anonymous = ask(AnonymousIdentity)
         report(
-            verdict(anonymous == AnonymousIdentity.sender.toText()) +
+            verdict(anonymous == ANONYMOUS) +
                 "an anonymous call is seen as " + anonymous,
         )
 
@@ -185,6 +202,9 @@ class DemoActivity : Activity() {
 
     private companion object {
         const val STATUS = "status"
+
+        /** Written out rather than read from the library, so the control is not the library checking itself. */
+        const val ANONYMOUS = "2vxsx-fae"
 
         /** Listed in the origin's ii-auth-callbacks, and claimed by this app's App Link. */
         const val CALLBACK_URL = "https://callback-origin.vercel.app/icrc167-callback"
