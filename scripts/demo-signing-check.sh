@@ -29,7 +29,12 @@ want_digest="$(jq -r '.[0].target.sha256_cert_fingerprints[0]' "$links" | tr -d 
 package="$("${tools}aapt2" dump packagename "$apk")"
 certs="$("${tools}apksigner" verify --print-certs "$apk")"
 signers="$(printf '%s' "$certs" | grep -c '^Signer #[0-9]* certificate SHA-256 digest:' || true)"
-[ "$signers" -eq 1 ] || fail "expected exactly one signer, found $signers"
+if [ "$signers" -ne 1 ]; then
+  # Certificate digests are public. Show what apksigner said, so a change in its output
+  # format is visible here instead of being guessed at.
+  printf "%s" "$certs"; echo
+  fail "expected exactly one signer, found $signers"
+fi
 digest="$(printf '%s' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
 
 echo "apk:        $package $digest"
