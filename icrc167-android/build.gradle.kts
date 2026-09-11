@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    kotlin("android")
 }
 
 android {
@@ -17,7 +16,16 @@ android {
 
     // The timing test reads the certificate icrc167-canister-sig's tests already hold, not a
     // copy that could drift from it.
-    sourceSets.getByName("androidTest").resources.srcDir("../icrc167-canister-sig/src/test/resources")
+    //
+    // Not sourceSets.getByName(...): in AGP 9.4.0 that property promises the legacy
+    // AndroidLibrarySourceSet, which the source sets it hands out do not implement, and the
+    // cast fails at configuration. Both overloads of the block form are typed with
+    // interfaces they do implement.
+    sourceSets {
+        named("androidTest") {
+            resources.directories += "../icrc167-canister-sig/src/test/resources"
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
