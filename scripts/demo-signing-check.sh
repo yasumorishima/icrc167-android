@@ -28,14 +28,19 @@ want_digest="$(jq -r '.[0].target.sha256_cert_fingerprints[0]' "$links" | tr -d 
 
 package="$("${tools}aapt2" dump packagename "$apk")"
 certs="$("${tools}apksigner" verify --print-certs "$apk")"
-signers="$(printf '%s' "$certs" | grep -c '^Signer #[0-9]* certificate SHA-256 digest:' || true)"
+# The wording differs between apksigner versions. The build-tools on the runner print
+# "V2 Signer: certificate SHA-256 digest: <hex>", one line per signature scheme (measured
+# 2026-09-11), not the "Signer #1" form this script first assumed. What has to hold does not
+# depend on the wording: every such line names the same certificate, and there is one.
+digests="$(printf '%s' "$certs" | sed -n 's/^.*[Ss]igner.* certificate SHA-256 digest: //p' | sort -u)"
+signers="$(printf '%s' "$digests" | grep -c . || true)"
 if [ "$signers" -ne 1 ]; then
   # Certificate digests are public. Show what apksigner said, so a change in its output
   # format is visible here instead of being guessed at.
   printf "%s" "$certs"; echo
-  fail "expected exactly one signer, found $signers"
+  fail "expected exactly one signing certificate, found $signers"
 fi
-digest="$(printf '%s' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+digest="$digests"
 
 echo "apk:        $package $digest"
 echo "assetlinks: $want_package $want_digest"
