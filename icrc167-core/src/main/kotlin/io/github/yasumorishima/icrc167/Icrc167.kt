@@ -102,7 +102,7 @@ public class Icrc167AuthRequest internal constructor(
         val params = try {
             Fragment.decode(fragment)
         } catch (e: IllegalArgumentException) {
-            return Icrc167Result.Rejected("malformed fragment: ${e.message}")
+            return Icrc167Result.Rejected("malformed fragment: $e")
         }
 
         val returnedState = params["state"]
@@ -122,7 +122,7 @@ public class Icrc167AuthRequest internal constructor(
         return try {
             parseResponse(message, nowNanos)
         } catch (e: Exception) {
-            Icrc167Result.Rejected("malformed response: ${e.message}")
+            Icrc167Result.Rejected("malformed response: $e")
         }
     }
 

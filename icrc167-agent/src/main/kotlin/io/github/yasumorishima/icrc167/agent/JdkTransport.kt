@@ -42,7 +42,7 @@ public class JdkTransport(
             }
             HttpResponse(status, stream?.use { readCapped(it) } ?: ByteArray(0))
         } catch (e: IOException) {
-            throw IcAgentException("$url could not be reached: ${e.message}")
+            throw IcAgentException("$url could not be reached: $e")
         } finally {
             connection.disconnect()
         }
