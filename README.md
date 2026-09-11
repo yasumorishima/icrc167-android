@@ -188,9 +188,9 @@ canister signature: with a subnet delegation, two BLS12-381 verifications in pur
 | 34572827763 | 721 ms | 238 ms |
 | 34572820586 | 1118 ms | 464 ms |
 
-The first call in a process pays for class loading and MIRACL's tables, and a real sign-in is
-usually that first call. These are emulator numbers from shared CI hosts, which is why they
-spread threefold, and they say nothing about a phone. The test fails if the cold run exceeds
+In every run the first call in the process took two to four times the warm median, and a real
+sign-in is usually that first call. These are emulator numbers from shared CI hosts, which is
+why they spread close to threefold, and they say nothing about a phone. The test fails if the cold run exceeds
 three times the slowest of them, to catch a regression. A phone's number comes from the demo,
 which prints how long checking the answer took and how much of it was BLS.
 

@@ -44,9 +44,10 @@ class VerificationTimingTest {
         }
         val verifier = CertificateVerifier(counting)
 
-        // The first call pays for class loading and MIRACL's tables. A real sign-in happens
-        // about once per process, so this is the number that matters most. It is only cold if
-        // nothing earlier in this test process touched MIRACL, which the other tests do not.
+        // The first call in a process is the slow one, two to four times the warm median in the
+        // runs so far, and a real sign-in happens about once per process, so this is the number
+        // that matters most. It is only cold if nothing earlier in this test process touched
+        // MIRACL, which the other tests do not.
         val cold = timed { verifier.verify(certificate, canisterId) }
         assertTrue(cold.second.toString(), cold.second is CertificateVerification.Valid)
         assertEquals("BLS verifications in one certificate check", 2, calls.get())

@@ -18,7 +18,7 @@ run() {
   fi
 }
 
-# The timing test logs rather than asserts, so its numbers reach the CI log only through here.
+# The timing test's numbers reach the CI log only through here.
 # Printed straight after the instrumented tests, before anything clears logcat.
 print_timing() {
   local lines
