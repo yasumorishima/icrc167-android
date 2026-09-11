@@ -71,33 +71,42 @@ public class SessionKeyStore(context: Context) {
         context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     /** Mints a key for a new attempt, replacing any earlier unfinished one. */
-    @Synchronized
-    public fun beginAttempt(): SessionKey = SessionKey.generate().also { store(PENDING_SEED, it) }
+    public fun beginAttempt(): SessionKey = synchronized(LOCK) {
+        SessionKey.generate().also { store(PENDING_SEED, it) }
+    }
 
     /** The key the pending attempt is bound to, if there is one. */
-    @Synchronized
-    public fun pending(): SessionKey? = load(PENDING_SEED)
+    public fun pending(): SessionKey? = synchronized(LOCK) { load(PENDING_SEED) }
 
     /** The key a completed sign-in is bound to. */
-    @Synchronized
-    public fun active(): SessionKey? = load(ACTIVE_SEED)
+    public fun active(): SessionKey? = synchronized(LOCK) { load(ACTIVE_SEED) }
 
-    /** Called once an attempt has produced a chain that verified. */
-    @Synchronized
-    public fun promotePending(): SessionKey? {
-        val key = load(PENDING_SEED) ?: return null
+    /**
+     * Makes [key] the active one and forgets the pending slot. It takes the key the chain was
+     * verified against instead of reading the pending slot again: a second read can fail on a
+     * transient Keystore error or find a different key, and either would leave the chain bound
+     * to a key it does not name. Throws if the key cannot be stored.
+     */
+    public fun promote(key: SessionKey): Unit = synchronized(LOCK) {
         store(ACTIVE_SEED, key)
         preferences.edit().remove(PENDING_SEED).apply()
-        return key
     }
 
-    @Synchronized
-    public fun discardPending() {
+    /** Promotes whatever the pending slot holds, or returns null. Prefer [promote]. */
+    public fun promotePending(): SessionKey? {
+        synchronized(LOCK) {
+            val key = load(PENDING_SEED) ?: return null
+            store(ACTIVE_SEED, key)
+            preferences.edit().remove(PENDING_SEED).apply()
+            return key
+        }
+    }
+
+    public fun discardPending(): Unit = synchronized(LOCK) {
         preferences.edit().remove(PENDING_SEED).apply()
     }
 
-    @Synchronized
-    public fun clear() {
+    public fun clear(): Unit = synchronized(LOCK) {
         preferences.edit().remove(PENDING_SEED).remove(ACTIVE_SEED).apply()
     }
 
@@ -151,6 +160,12 @@ public class SessionKeyStore(context: Context) {
     }
 
     private companion object {
+        /**
+         * One lock for every store in the process, not one per instance: they all read and
+         * write the same preferences file, and each client builds its own store.
+         */
+        val LOCK = Any()
+
         const val PREFERENCES = "icrc167-session"
         const val PENDING_SEED = "pending-seed"
         const val ACTIVE_SEED = "active-seed"

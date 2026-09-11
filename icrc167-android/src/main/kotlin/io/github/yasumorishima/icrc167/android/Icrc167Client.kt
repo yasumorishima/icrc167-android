@@ -39,9 +39,11 @@ public sealed interface AuthOutcome {
  * neither. The answer comes back as a verified App Link, which is why [callbackUrl] must be a
  * host this app owns through Digital Asset Links.
  *
- * Safe to call from any thread. Starting an attempt and completing one are serialised across
- * the whole process: both read and write the pending attempt and its session key, and a new
- * attempt landing in the middle of a completion would bind the chain to the wrong key.
+ * Safe to call from any thread of one process. Starting an attempt and completing one are
+ * serialised across the process, so there is one attempt at a time whatever callback URL a
+ * client was built with: both read and write the pending attempt and its session key, and a
+ * new attempt landing in the middle of a completion would bind the chain to the wrong key.
+ * Nothing coordinates separate processes.
  */
 public class Icrc167Client(
     context: Context,
@@ -116,7 +118,11 @@ public class Icrc167Client(
             .launchUrl(context, Uri.parse(started.authorizationUrl))
     }
 
-    /** Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. */
+    /**
+     * Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. It
+     * verifies the chain, which for a real Internet Identity chain means BLS pairings, and holds
+     * the attempt lock while it does, so call it off the main thread.
+     */
     public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome =
         synchronized(ATTEMPT_LOCK) { completeAttempt(intent, nowNanos) }
 
@@ -184,8 +190,15 @@ public class Icrc167Client(
                         AuthOutcome.Failed("chain rejected: ${verification.reason}")
                     }
                     is ChainVerification.Valid -> {
+                        // The key the chain was just verified against, not a second read of the
+                        // pending slot, which can fail or find a different key.
+                        try {
+                            keys.promote(key)
+                        } catch (e: Exception) {
+                            abandonAttempt()
+                            return AuthOutcome.Failed("could not keep the session key: " + e.message)
+                        }
                         clearPending()
-                        keys.promotePending()
                         AuthOutcome.Success(
                             principal = verification.principal,
                             chain = result.chain,
