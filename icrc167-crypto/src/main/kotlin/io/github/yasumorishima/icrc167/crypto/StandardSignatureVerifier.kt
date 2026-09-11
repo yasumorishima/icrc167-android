@@ -22,10 +22,11 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * from the payload is how a verifier gets talked into using the wrong one.
  *
  * Canister signatures are **not** handled here: verifying one means verifying an IC state-tree
- * certificate against the root key, which needs BLS and belongs in the agent layer. They come
- * back as [SignatureCheck.UNSUPPORTED_KEY] — never as valid, and never confused with a forgery.
- * A genuine Internet Identity chain is signed at its root by exactly such a key, so this is the
- * expected answer for hop 0 until certificate verification exists.
+ * certificate against the root key, which needs BLS and lives in `icrc167-canister-sig`. They
+ * come back as [SignatureCheck.UNSUPPORTED_KEY] — never as valid, and never confused with a
+ * forgery. A genuine Internet Identity chain is signed at its root by exactly such a key, so on
+ * its own this verifier refuses every real chain at hop 0: combine it with
+ * `CanisterSignatureVerifier` in a `CompositeSignatureVerifier`, as `Icrc167Client` does.
  */
 public class StandardSignatureVerifier : SignatureVerifier {
 

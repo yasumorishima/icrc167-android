@@ -16,6 +16,8 @@ updates:
       - "/icrc167-core"
       - "/icrc167-crypto"
       - "/icrc167-certificate"
+      - "/icrc167-canister-sig"
+      - "/icrc167-agent"
       - "/icrc167-android"
       - "/probe"
       - "/fake-signer"

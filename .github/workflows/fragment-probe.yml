@@ -13,6 +13,10 @@ on:
     paths:
       - "icrc167-core/**"
       - "icrc167-crypto/**"
+      # The Android module verifies canister signatures through these, so a change to either
+      # changes what the app accepts.
+      - "icrc167-certificate/**"
+      - "icrc167-canister-sig/**"
       - "icrc167-android/**"
       - "probe/**"
       - "fake-signer/**"
