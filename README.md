@@ -29,7 +29,7 @@ real passkey on a real device.
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Checking the node signature on a query response | done, verified to the network root key |
 | Callback origin (the two well-known documents) | live, and read back on every deploy |
-| Demo app | not yet |
+| Demo app | in `demo/`, not yet run against Internet Identity |
 
 ### Modules
 
@@ -254,6 +254,20 @@ arguments. Without any of it a captured answer replays for ever and a stale cert
 a rotated-out node authoritative, which is also why the recorded exchanges in the tests are
 verified with the clock set to the moment they were signed.
 
+
+## The demo app
+
+`demo/` signs in with Internet Identity and then asks DFINITY's relying-party canister
+(`kvusz-kaaaa-aaaad-aabwa-cai`) who is calling, through `verifiedWhoami`. Checking the chain on
+the device only shows that the chain agrees with itself; the canister is the outside witness.
+Two controls run beside it, because a match on its own would also fit a canister that answers
+everyone alike: an anonymous call has to come back as `2vxsx-fae`, and the same chain signed
+with a key it does not name has to be refused by the replica for its signature. Every line
+says PASS or FAIL, so the result does not depend on reading the output by eye.
+
+It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, so it only
+receives the answer once `assetlinks.json` carries its package name and the fingerprint of the
+key it is signed with. Until then the flow runs in the browser and stops at the callback page.
 
 ## What you have to host
 

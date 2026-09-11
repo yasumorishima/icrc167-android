@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Signs in with Internet Identity and asks a canister who it sees. Unlike the probe, this app
+  claims a real origin: the callback is only delivered here once that origin's
+  assetlinks.json names this package and the certificate it is signed with.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- verifiedWhoami talks to the IC over HTTPS. The library itself declares nothing. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      No backup. The session key's seed is stored encrypted under a Keystore key that never
+      leaves the device, so a copy that still gets made (from Android 12 a device-to-device
+      transfer can ignore this flag) cannot be read, and is discarded the first time it is loaded.
+    -->
+    <application
+        android:allowBackup="false"
+        android:label="ICRC-167 demo">
+
+        <!--
+          No configuration change (rotation, dark mode, font size, language) may restart the
+          activity: a call in flight would report into a screen that no longer exists, and
+          repeating the check needs a fresh sign-in.
+        -->
+        <activity
+            android:name=".DemoActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Must match the entry in the origin's /.well-known/ii-auth-callbacks exactly. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="callback-origin.vercel.app"
+                    android:path="/icrc167-callback" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

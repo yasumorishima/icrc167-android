@@ -20,6 +20,7 @@ updates:
       - "/icrc167-agent"
       - "/icrc167-android"
       - "/probe"
+      - "/demo"
       - "/fake-signer"
     schedule:
       interval: weekly
