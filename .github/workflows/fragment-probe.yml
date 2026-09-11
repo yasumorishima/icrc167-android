@@ -66,10 +66,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          script: |
-            gradle --no-daemon --stacktrace :icrc167-android:connectedDebugAndroidTest
-            bash scripts/fragment-probe.sh
-            bash scripts/auth-roundtrip.sh
+          # One script, so that one failing check does not hide the others: the emulator runner
+          # stops at the first failing line, and a red instrumented test hid the probes.
+          script: bash scripts/device-tests.sh
 
       - name: Upload the device test reports
         if: failure()

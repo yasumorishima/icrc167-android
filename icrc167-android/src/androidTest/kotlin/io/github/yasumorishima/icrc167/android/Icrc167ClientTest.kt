@@ -32,9 +32,10 @@ import org.junit.runner.RunWith
 /**
  * The client on a real device: real preferences, the real Keystore, real Ed25519 chains.
  *
- * Each test that guards a fix was also run against a copy of the library with that fix
- * reverted, and failed there. A test that cannot fail proves nothing, for the same reason a
- * passing round trip proves nothing: the principal comes out of the answer itself.
+ * Each test that guards a fix is run against a copy of the library with that fix reverted,
+ * and has to fail there before it is trusted; the runs are linked from the pull request that
+ * added it. A test that cannot fail proves nothing, for the same reason a passing round trip
+ * proves nothing: the principal comes out of the answer itself.
  */
 @RunWith(AndroidJUnit4::class)
 class Icrc167ClientTest {
@@ -101,8 +102,9 @@ class Icrc167ClientTest {
     /**
      * Guards the attempt lock. A completion holds it while it verifies, so a second
      * beginAuthentication has to wait instead of replacing the pending key underneath it.
-     * Without the lock this fails twice over: the second begin returns at once, and the first
-     * completion then clears the second attempt, which can never finish.
+     * Without the lock the second begin returns at once, well inside HELD_SECONDS. Its attempt
+     * usually lands while the first completion is still verifying, and that completion then
+     * clears it, so the second check below fails as well.
      */
     @Test
     fun beginningAnAttemptWaitsForACompletionInProgress() {
@@ -136,6 +138,7 @@ class Icrc167ClientTest {
             release.countDown()
             completing.join(TIMEOUT_SECONDS * 1000)
         }
+        assertFalse("the first completion never finished", completing.isAlive)
         assertTrue("the second attempt never began", begun.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
 
         success(firstOutcome.get().getOrThrow())
@@ -206,6 +209,9 @@ class Icrc167ClientTest {
         val outcome = failure(client.handleRedirect(link(answer.url)))
 
         assertTrue(outcome.reason, outcome.reason.startsWith("could not keep the session key: "))
+        // A null from reading the pending slot again would land in this same refusal. This one
+        // has to come from the Keystore refusing to store the key.
+        assertFalse(outcome.reason, outcome.reason.contains("NullPointerException"))
         assertEquals(AuthOutcome.NotOurs, client.handleRedirect(link(answer.url)))
         assertNull(SessionKeyStore(context).pending())
         assertNull(client.activeSessionKey())
@@ -237,6 +243,7 @@ class Icrc167ClientTest {
         /** SessionKeyStore's alias, repeated here so the test can break it on purpose. */
         const val WRAPPING_KEY_ALIAS = "icrc167-session-wrapping-key"
         const val TIMEOUT_SECONDS = 10L
-        const val HELD_SECONDS = 2L
+        /** Long enough that an unlocked begin, a Keystore key and one write, returns well inside it. */
+        const val HELD_SECONDS = 5L
     }
 }
