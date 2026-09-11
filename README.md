@@ -25,7 +25,7 @@ real passkey on a real device.
 | Ed25519 and ECDSA P-256 (IEEE P1363) signature verification | done, tested |
 | Certificate machinery: CBOR reader, state-tree witness | done, tested |
 | Canister-signature verification (BLS12-381, certificate chain, subnet scope) | done, tested |
-| Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator |
+| Android module (Custom Tabs, App Links, key storage) | done, exercised on an emulator; device tests guard the attempt lock, key promotion and verifier failures |
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Checking the node signature on a query response | done, verified to the network root key |
 | Callback origin (the two well-known documents) | live, and read back on every deploy |

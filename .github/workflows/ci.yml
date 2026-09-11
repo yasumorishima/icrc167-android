@@ -41,8 +41,10 @@ jobs:
         # dependency bump going in over a failing build, as #13 did.
         run: bash scripts/test-head-green-gate.sh
 
-      - name: Compile the Android library and the demo app
-        run: gradle --no-daemon --stacktrace :icrc167-android:assembleDebug :demo:assembleDebug
+      - name: Compile the Android library, its device tests, and the demo app
+        # The device tests only run on the emulator job, which costs a boot. A test that does
+        # not even compile should fail here, in two minutes, instead.
+        run: gradle --no-daemon --stacktrace :icrc167-android:assembleDebug :icrc167-android:assembleDebugAndroidTest :demo:assembleDebug
 
       - name: Upload test reports
         if: failure()
