@@ -187,7 +187,7 @@ public class Icrc167Client(
                     chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
                 } catch (e: Exception) {
                     abandonAttempt()
-                    return AuthOutcome.Failed("chain could not be checked: " + e.message)
+                    return AuthOutcome.Failed("chain could not be checked: " + e)
                 }
                 when (verification) {
                     is ChainVerification.Invalid -> {
@@ -201,7 +201,7 @@ public class Icrc167Client(
                             keys.promote(key)
                         } catch (e: Exception) {
                             abandonAttempt()
-                            return AuthOutcome.Failed("could not keep the session key: " + e.message)
+                            return AuthOutcome.Failed("could not keep the session key: " + e)
                         }
                         clearPending()
                         AuthOutcome.Success(

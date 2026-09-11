@@ -170,7 +170,7 @@ class DemoActivity : Activity() {
     private fun ask(identity: Identity): String = try {
         IcAgent().verifiedWhoami(CANISTER, identity, verifier).toText()
     } catch (e: Exception) {
-        "no answer (" + e.message + ")"
+        "no answer (" + e + ")"
     }
 
     /**
