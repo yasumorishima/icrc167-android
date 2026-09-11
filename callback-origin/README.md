@@ -26,6 +26,10 @@ keytool -list -v -keystore <keystore> -alias <alias> | grep 'SHA256:'
 If CI builds the app, its signing key has to be fixed (a keystore in secrets) — otherwise the
 fingerprint changes on every build and link verification silently stops working.
 
+Here that key is the demo's release key. It lives only in the repository secrets
+`DEMO_KEYSTORE_BASE64` and `DEMO_KEYSTORE_PASSWORD`, and `scripts/demo-signing-check.sh`
+compares every release APK against this file before it is published.
+
 ## Why not GitHub Pages
 
 Serving an extensionless path as `application/json` on GitHub Pages means the
@@ -47,7 +51,7 @@ like it did. One copy, two callers:
 | workflow | when | extra |
 | --- | --- | --- |
 | `ci.yml`, job `well-known` | the repository variable `CALLBACK_ORIGIN` is set, with no trailing slash | — |
-| `deploy-callback-origin.yml` | after every deploy | also diffs the served callback list against the one in that commit, so a deploy that did not reach the origin cannot pass |
+| `deploy-callback-origin.yml` | after every deploy | also diffs the served callback list and `assetlinks.json` against the ones in that commit, so a deploy that did not reach the origin cannot pass |
 
 ## Two ways to production is one too many
 

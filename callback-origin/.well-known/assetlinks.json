@@ -3,9 +3,9 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "REPLACE.WITH.YOUR.APPLICATION.ID",
+      "package_name": "io.github.yasumorishima.icrc167.demo",
       "sha256_cert_fingerprints": [
-        "REPLACE:WITH:THE:SHA256:FINGERPRINT:OF:THE:SIGNING:CERTIFICATE"
+        "BF:B0:03:2C:10:B0:51:C1:D1:19:73:76:EB:AC:13:0D:81:36:32:43:84:8E:D2:31:2A:85:7E:9E:D5:E1:9A:CD"
       ]
     }
   }

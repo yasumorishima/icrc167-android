@@ -60,7 +60,10 @@ jobs:
             fi
           fi
           if grep -q REPLACE "$links"; then
-            echo "::warning::assetlinks.json is still the template, so Android will not route the callback into the app. Internet Identity does not read this file, so the flow can still be exercised in the browser."
+            # It names the demo app now. Publishing the template again would quietly stop
+            # Android from handing the callback to it.
+            echo "::error::assetlinks.json is the template again, so Android would leave the callback in the browser"
+            exit 1
           fi
 
       # Vercel connects a project to the repository by itself and then deploys the repository
@@ -130,7 +133,7 @@ jobs:
         if: ${{ inputs.bootstrap != true }}
         env:
           ORIGIN: ${{ steps.target.outputs.origin }}
-        run: bash scripts/check-callback-origin.sh "$ORIGIN" callback-origin/.well-known/ii-auth-callbacks
+        run: bash scripts/check-callback-origin.sh "$ORIGIN" callback-origin/.well-known/ii-auth-callbacks callback-origin/.well-known/assetlinks.json
 
       - name: Where it went
         if: always()

@@ -7,14 +7,16 @@
 # One copy, called from both the CI job that measures a live origin and the deploy job that
 # has just published one. Two copies is how they stop agreeing.
 #
-#   check-callback-origin.sh <origin> [expected-callbacks-json]
+#   check-callback-origin.sh <origin> [expected-callbacks-json] [expected-assetlinks-json]
 #
 # With the second argument, the served list is compared against that file, which is what ties
-# a deploy to the thing that was deployed rather than to whatever was already there.
+# a deploy to the thing that was deployed rather than to whatever was already there. With the
+# third, the served assetlinks.json is held to that file the same way.
 set -euo pipefail
 
-origin="${1:?usage: check-callback-origin.sh <origin> [expected-callbacks-json]}"
+origin="${1:?usage: check-callback-origin.sh <origin> [expected-callbacks-json] [expected-assetlinks-json]}"
 expected="${2:-}"
+expected_links="${3:-}"
 origin="${origin%/}"
 
 fail() { echo "::error::$*"; exit 1; }
@@ -61,6 +63,14 @@ jq -e '.[0].target.package_name' "$links" > /dev/null || fail "no package_name i
 # callback into the app. Internet Identity does not read this file, so it is not fatal.
 if grep -q REPLACE "$links"; then
   warn "assetlinks.json is still the template: Android will not hand the callback to the app"
+fi
+
+if [ -n "$expected_links" ]; then
+  [ -s "$expected_links" ] || fail "$expected_links is missing or empty"
+  if ! diff <(jq -S . "$expected_links") <(jq -S . "$links"); then
+    fail "the origin is serving a different assetlinks.json than the one in this commit"
+  fi
+  echo "served assetlinks.json matches $expected_links"
 fi
 
 echo "both documents read back as the signer and the platform will read them"
