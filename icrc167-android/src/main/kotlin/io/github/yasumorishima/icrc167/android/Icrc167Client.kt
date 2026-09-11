@@ -38,6 +38,10 @@ public sealed interface AuthOutcome {
  * and any existing Internet Identity session live in the user's browser and a WebView can see
  * neither. The answer comes back as a verified App Link, which is why [callbackUrl] must be a
  * host this app owns through Digital Asset Links.
+ *
+ * Safe to call from any thread. Starting an attempt and completing one are serialised across
+ * the whole process: both read and write the pending attempt and its session key, and a new
+ * attempt landing in the middle of a completion would bind the chain to the wrong key.
  */
 public class Icrc167Client(
     context: Context,
@@ -74,7 +78,10 @@ public class Icrc167Client(
      * Starts an attempt and returns the URL to open. Prefer [launch] unless the app wants to
      * open the browser itself.
      */
-    public fun beginAuthentication(targets: List<Principal>? = null): Pending {
+    public fun beginAuthentication(targets: List<Principal>? = null): Pending =
+        synchronized(ATTEMPT_LOCK) { startAttempt(targets) }
+
+    private fun startAttempt(targets: List<Principal>?): Pending {
         // A fresh key every time: presenting one public key to a signer twice would make two
         // sign-ins linkable by the key alone. It only replaces the active key on success.
         val key = keys.beginAttempt()
@@ -110,7 +117,10 @@ public class Icrc167Client(
     }
 
     /** Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. */
-    public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome {
+    public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome =
+        synchronized(ATTEMPT_LOCK) { completeAttempt(intent, nowNanos) }
+
+    private fun completeAttempt(intent: Intent, nowNanos: BigInteger): AuthOutcome {
         val uri = intent.data ?: return AuthOutcome.NotOurs
 
         // Read the *encoded* fragment. Uri.getFragment() percent-decodes the whole thing, so
@@ -188,7 +198,7 @@ public class Icrc167Client(
     }
 
     /** Forgets the pending attempt and every session key, e.g. on sign-out. */
-    public fun signOut() {
+    public fun signOut(): Unit = synchronized(ATTEMPT_LOCK) {
         clearPending()
         keys.clear()
     }
@@ -227,6 +237,13 @@ public class Icrc167Client(
         maxTimeToLiveNanos.divide(BigInteger.valueOf(1_000_000)).toLong()
 
     private companion object {
+        /**
+         * One lock for the process, not one per client. The attempt lives in preferences and
+         * in the key store, which every client in the process shares, and an activity that is
+         * recreated builds a new client while the old one may still be completing.
+         */
+        val ATTEMPT_LOCK = Any()
+
         const val PREFERENCES = "icrc167-pending"
         const val PENDING_ID = "request-id"
         const val PENDING_STATE = "state"
