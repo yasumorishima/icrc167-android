@@ -60,9 +60,10 @@ echo "$headers"
 echo "$headers" | head -1 | grep -q " 200 " || fail "expected 200, and no redirect"
 jq -e '.[0].target.package_name' "$links" > /dev/null || fail "no package_name in assetlinks.json"
 # jq is happy with the template too, and a template here means Android will not route the
-# callback into the app. Internet Identity does not read this file, so it is not fatal.
+# callback into the app. The demo app depends on this file now, so a template is a failure:
+# Internet Identity would still answer, and the answer would stop in the browser.
 if grep -q REPLACE "$links"; then
-  warn "assetlinks.json is still the template: Android will not hand the callback to the app"
+  fail "assetlinks.json is the template: Android will not hand the callback to the app"
 fi
 
 if [ -n "$expected_links" ]; then
