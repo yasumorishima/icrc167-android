@@ -18,7 +18,20 @@ run() {
   fi
 }
 
+# The timing test logs rather than asserts, so its numbers reach the CI log only through here.
+# Printed straight after the instrumented tests, before anything clears logcat.
+print_timing() {
+  local lines
+  lines="$(adb logcat -d -s ICRC167_TIMING:I | grep "ICRC167_TIMING cold_ms=" || true)"
+  if [ -z "$lines" ]; then
+    echo "no timing line in logcat"
+    return 1
+  fi
+  echo "$lines"
+}
+
 run "instrumented tests" gradle --no-daemon --stacktrace :icrc167-android:connectedDebugAndroidTest
+run "verification timing" print_timing
 run "fragment probe" bash scripts/fragment-probe.sh
 run "authentication round trip" bash scripts/auth-roundtrip.sh
 

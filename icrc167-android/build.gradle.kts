@@ -15,6 +15,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // The timing test reads the certificate icrc167-canister-sig's tests already hold, not a
+    // copy that could drift from it.
+    sourceSets.getByName("androidTest").resources.srcDir("../icrc167-canister-sig/src/test/resources")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
