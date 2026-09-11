@@ -114,8 +114,9 @@ public class Icrc167Client(
     /**
      * Starts an attempt and opens it in a Custom Tab. Like [beginAuthentication], it waits
      * while another attempt is being completed. Apps usually call this from the UI thread,
-     * where that wait is a pause: the certificate check alone took 0.2 to 1.1 s on the
-     * emulator the device tests run on (see VerificationTimingTest).
+     * where that wait is a pause: on the emulator the device tests run on, the certificate
+     * check alone has taken from about 0.2 s to over a second (see VerificationTimingTest and
+     * the README).
      */
     public fun launch(context: Context, targets: List<Principal>? = null) {
         val started = beginAuthentication(targets)
