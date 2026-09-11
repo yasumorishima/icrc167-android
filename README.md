@@ -161,10 +161,11 @@ accepted is a separate question, and only a real sign-in answers it.
 
 The client also has instrumented tests of its own (`Icrc167ClientTest`), run on the same
 emulator before the probes by `scripts/device-tests.sh`, which runs every device check to the
-end even when one fails. Each test that guards a fix was run against a copy of the library
-with that fix reverted, and failed there: the attempt lock, promotion of the key the chain was
-verified against, the guard around the verifier, and the refusal when a key cannot be stored
-(runs 34558835717 and 34559941759).
+end even when one fails. Each test that guards a fix failed against a copy of the library with
+the fixes reverted together, three at first and then all four: the attempt lock, promotion of
+the key the chain was verified against, the guard around the verifier, and the refusal when a
+key cannot be stored (runs 34558835717 and 34559941759). One assertion was added to the last of
+those tests after the runs.
 
 What this does *not* establish: that a real Internet Identity round trip works. Verifying
 the chain is covered elsewhere — see the canister-signature section above — but nothing here
@@ -293,8 +294,8 @@ Two controls run beside it, because a match on its own would also fit a canister
 everyone alike: an anonymous call has to come back as `2vxsx-fae`, and the same chain signed
 with a key it does not name has to be refused by the replica for its signature. Every verdict
 says PASS or FAIL, so the result does not depend on reading the output by eye. TIME lines say
-how long checking the answer and each whoami took, and how much of that was BLS, so a sign-in
-on a phone gives the number an emulator cannot.
+how long checking the answer and the signed-in and anonymous whoami calls took, and how much
+of that was BLS, so a sign-in on a phone gives the number an emulator cannot.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
