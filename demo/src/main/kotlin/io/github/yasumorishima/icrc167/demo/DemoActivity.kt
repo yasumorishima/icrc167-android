@@ -2,11 +2,15 @@ package io.github.yasumorishima.icrc167.demo
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import io.github.yasumorishima.icrc167.CompositeSignatureVerifier
+import io.github.yasumorishima.icrc167.DelegationChainVerifier
 import io.github.yasumorishima.icrc167.Principal
 import io.github.yasumorishima.icrc167.agent.AnonymousIdentity
 import io.github.yasumorishima.icrc167.agent.DelegatedIdentity
@@ -18,11 +22,14 @@ import io.github.yasumorishima.icrc167.agent.Signer
 import io.github.yasumorishima.icrc167.android.AuthOutcome
 import io.github.yasumorishima.icrc167.android.Icrc167Client
 import io.github.yasumorishima.icrc167.android.SessionKey
+import io.github.yasumorishima.icrc167.canistersig.CanisterSignatureVerifier
 import io.github.yasumorishima.icrc167.canistersig.MiraclBls
+import io.github.yasumorishima.icrc167.certificate.BlsSignatureVerifier
 import io.github.yasumorishima.icrc167.certificate.CertificateVerifier
 import io.github.yasumorishima.icrc167.crypto.StandardSignatureVerifier
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Signs in with Internet Identity, then asks a canister who it thinks is calling.
@@ -35,11 +42,36 @@ import java.util.concurrent.Executors
  * Two controls run beside it, because a match on its own would also fit a canister that
  * answers everyone alike: an anonymous call has to come back as 2vxsx-fae, and the same chain
  * signed with a key it does not name has to be refused by the replica for its signature.
- * Every line says PASS or FAIL, so nobody has to judge the output by eye.
+ * Every verdict says PASS or FAIL, so nobody has to judge the output by eye. TIME lines say
+ * how long a step took, and how much of it was BLS.
  */
 class DemoActivity : Activity() {
 
-    private val client by lazy { Icrc167Client(this, CALLBACK_URL) }
+    /** MIRACL, timed, so the screen can say how much of a check was BLS. Only the network thread uses it. */
+    private val blsNanos = AtomicLong()
+    private val bls = BlsSignatureVerifier { key, message, signature ->
+        val start = System.nanoTime()
+        try {
+            MiraclBls.verify(key, message, signature)
+        } finally {
+            blsNanos.addAndGet(System.nanoTime() - start)
+        }
+    }
+
+    // The library default (Icrc167Client's chainVerifier parameter), with MIRACL timed. It is
+    // a copy, so a change to that default has to be made here as well.
+    private val client by lazy {
+        Icrc167Client(
+            this,
+            CALLBACK_URL,
+            chainVerifier = DelegationChainVerifier(
+                CompositeSignatureVerifier(StandardSignatureVerifier(), CanisterSignatureVerifier(bls = bls)),
+            ),
+        )
+    }
+
+    /** Node signatures are Ed25519, and the subnet certificate is checked to the root key. */
+    private val verifier by lazy { QueryResponseVerifier(CertificateVerifier(bls), StandardSignatureVerifier()) }
     private val network: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
     private lateinit var signIn: Button
@@ -119,7 +151,11 @@ class DemoActivity : Activity() {
         // network, none of which belong on the thread that draws the screen.
         network.execute {
             try {
-                when (val outcome = client.handleRedirect(intent)) {
+                blsNanos.set(0)
+                val started = SystemClock.elapsedRealtime()
+                val outcome = client.handleRedirect(intent)
+                report(timing("checking the answer, including the Keystore", started))
+                when (outcome) {
                     is AuthOutcome.Success -> confirm(outcome)
                     // Shown verbatim: this app is where a live canister signature is first
                     // checked, and the reason is what says which part refused it.
@@ -154,10 +190,10 @@ class DemoActivity : Activity() {
         report("Scope: " + (outcome.effectiveTargets?.joinToString { it.toText() } ?: "any canister"))
         report("Asking " + CANISTER.toText() + " who is calling...")
 
-        val seen = ask(DelegatedIdentity(outcome.chain, Signer(key::sign)))
+        val seen = ask(DelegatedIdentity(outcome.chain, Signer(key::sign)), "whoami as the signed-in identity, two HTTP calls included")
         report(verdict(seen == expected) + "the canister sees " + seen + "; the chain names " + expected)
 
-        val anonymous = ask(AnonymousIdentity)
+        val anonymous = ask(AnonymousIdentity, "whoami anonymously, two HTTP calls included")
         report(
             verdict(anonymous == ANONYMOUS) +
                 "an anonymous call is seen as " + anonymous,
@@ -166,11 +202,27 @@ class DemoActivity : Activity() {
         report(wrongKeyControl(DelegatedIdentity(outcome.chain, Signer(SessionKey.generate()::sign))))
     }
 
-    /** The principal the canister reports, or why there is none. */
-    private fun ask(identity: Identity): String = try {
-        IcAgent().verifiedWhoami(CANISTER, identity, verifier).toText()
-    } catch (e: Exception) {
-        "no answer (" + e + ")"
+    /** The principal the canister reports, or why there is none, after a line saying how long it took. */
+    private fun ask(identity: Identity, what: String): String {
+        blsNanos.set(0)
+        val started = SystemClock.elapsedRealtime()
+        val answer = try {
+            IcAgent().verifiedWhoami(CANISTER, identity, verifier).toText()
+        } catch (e: Exception) {
+            "no answer (" + e + ")"
+        }
+        report(timing(what, started))
+        return answer
+    }
+
+    /**
+     * A TIME line: the whole step, and how much of it was BLS. Says which kind of build it
+     * is, because a debuggable build runs slower than the release one people install.
+     */
+    private fun timing(what: String, startedAt: Long): String {
+        val total = SystemClock.elapsedRealtime() - startedAt
+        val build = if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) "debuggable" else "release"
+        return "TIME  " + what + ": " + total + " ms, of which BLS " + blsNanos.getAndSet(0) / 1_000_000 + " ms (" + build + " build)"
     }
 
     /**
@@ -212,7 +264,5 @@ class DemoActivity : Activity() {
         /** DFINITY's relying-party canister. It exports whoami as a query returning the caller. */
         val CANISTER: Principal = Principal.fromText("kvusz-kaaaa-aaaad-aabwa-cai")
 
-        /** Node signatures are Ed25519, and the subnet certificate is checked to the root key. */
-        val verifier = QueryResponseVerifier(CertificateVerifier(MiraclBls), StandardSignatureVerifier())
     }
 }

@@ -78,7 +78,8 @@ public class Icrc167Client(
 
     /**
      * Starts an attempt and returns the URL to open. Prefer [launch] unless the app wants to
-     * open the browser itself.
+     * open the browser itself. It waits while another attempt is being completed, which for a
+     * real chain means BLS pairings; see [handleRedirect].
      */
     public fun beginAuthentication(targets: List<Principal>? = null): Pending =
         synchronized(ATTEMPT_LOCK) { startAttempt(targets) }
@@ -110,6 +111,12 @@ public class Icrc167Client(
         )
     }
 
+    /**
+     * Starts an attempt and opens it in a Custom Tab. Like [beginAuthentication], it waits
+     * while another attempt is being completed. Apps usually call this from the UI thread,
+     * where that wait is a pause: the certificate check alone took 0.2 to 1.1 s on the
+     * emulator the device tests run on (see VerificationTimingTest).
+     */
     public fun launch(context: Context, targets: List<Principal>? = null) {
         val started = beginAuthentication(targets)
         CustomTabsIntent.Builder()
@@ -215,7 +222,7 @@ public class Icrc167Client(
         }
     }
 
-    /** Forgets the pending attempt and every session key, e.g. on sign-out. */
+    /** Forgets the pending attempt and every session key, e.g. on sign-out. Waits while an attempt is being completed. */
     public fun signOut(): Unit = synchronized(ATTEMPT_LOCK) {
         clearPending()
         keys.clear()
