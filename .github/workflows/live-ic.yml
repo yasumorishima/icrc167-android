@@ -31,7 +31,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "8.13"
+          # Android Gradle plugin 9.4 needs at least 9.6.0.
+          gradle-version: "9.6.1"
 
       - name: Anonymous, self-signed and delegated
         run: gradle --no-daemon :icrc167-agent:test --tests "*LiveIcTest*" -Dicrc167.live=1

@@ -27,8 +27,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
         with:
-          # The floor for Android Gradle plugin 8.13.
-          gradle-version: "8.13"
+          # Android Gradle plugin 9.4 needs at least 9.6.0.
+          gradle-version: "9.6.1"
 
       - name: Test
         run: |
@@ -93,8 +93,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
         with:
-          # The floor for Android Gradle plugin 8.13.
-          gradle-version: "8.13"
+          # Android Gradle plugin 9.4 needs at least 9.6.0.
+          gradle-version: "9.6.1"
 
       - name: Build an app that carries MIRACL, and read its dex
         run: |
