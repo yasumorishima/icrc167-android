@@ -175,6 +175,25 @@ getFragment()    …&state=s+t/a=te&x
 The `%26` becomes a separator, inventing a parameter that was never sent, and `%2B` becomes
 a `+` that the next decode turns into a space. Parse `encodedFragment`, never `getFragment()`.
 
+### How long verification takes
+
+Checking a real Internet Identity chain is dominated by verifying the certificate behind its
+canister signature: with a subnet delegation, two BLS12-381 verifications in pure Java.
+`VerificationTimingTest` times the certificate `id.ai` served, on the device job's emulator
+(x86_64, API 34, a debuggable build), and the job prints the result. Three runs on 2026-09-11:
+
+| run | cold | warm (median of five) |
+|---|---|---|
+| 34572794726 | 381 ms | 191 ms |
+| 34572827763 | 721 ms | 238 ms |
+| 34572820586 | 1118 ms | 464 ms |
+
+The first call in a process pays for class loading and MIRACL's tables, and a real sign-in is
+usually that first call. These are emulator numbers from shared CI hosts, which is why they
+spread threefold, and they say nothing about a phone. The test fails if the cold run exceeds
+three times the slowest of them, to catch a regression. A phone's number comes from the demo,
+which prints how long checking the answer took and how much of it was BLS.
+
 ### The specification is a draft
 
 ICRC-167 is at **IDEA** stage in the identity working group. The spec text lives in an

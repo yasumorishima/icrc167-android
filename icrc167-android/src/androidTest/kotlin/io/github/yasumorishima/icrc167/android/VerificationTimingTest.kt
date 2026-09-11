@@ -23,10 +23,11 @@ import org.junit.runner.RunWith
  * verifications, the delegation under the root key and the certificate under the subnet key:
  * the part of checking a real Internet Identity chain that dominates the cost.
  *
- * It logs a time rather than asserting one, for now. An emulator on a KVM host running a
- * debuggable APK says little about a phone, so a bound has to come from measurements; the line
- * goes to logcat, where scripts/device-tests.sh prints it into the CI log. What it does assert
- * is that the timed work really was a verification: both BLS checks ran and both passed.
+ * The line goes to logcat, where scripts/device-tests.sh prints it into the CI log. An emulator
+ * on a KVM host running a debuggable APK says little about a phone, so the bound on the cold
+ * run is not a target: it is three times the slowest of three measured runs, there to catch a
+ * regression. The test also asserts that the timed work really was a verification: both BLS
+ * checks ran and both passed.
  */
 @RunWith(AndroidJUnit4::class)
 class VerificationTimingTest {
@@ -63,6 +64,11 @@ class VerificationTimingTest {
                 " median_ms=${sorted[sorted.size / 2]} min_ms=${sorted.first()} max_ms=${sorted.last()}" +
                 " api=${Build.VERSION.SDK_INT} abi=${Build.SUPPORTED_ABIS.firstOrNull()} debuggable=${debuggable()}",
         )
+        // After the line, so a run over the bound still says what it measured.
+        assertTrue(
+            "the cold verification took ${cold.first} ms, over the $COLD_BOUND_MS ms bound",
+            cold.first <= COLD_BOUND_MS,
+        )
     }
 
     private fun <T> timed(block: () -> T): Pair<Long, T> {
@@ -89,5 +95,12 @@ class VerificationTimingTest {
     private companion object {
         const val TAG = "ICRC167_TIMING"
         const val WARM_RUNS = 5
+
+        /**
+         * Three times the slowest cold run measured on the device job (x86_64, API 34, a
+         * debuggable build) on 2026-09-11: 381, 721 and 1118 ms in runs 34572794726,
+         * 34572827763 and 34572820586. The spread between CI hosts is itself close to threefold.
+         */
+        const val COLD_BOUND_MS = 3354L
     }
 }
