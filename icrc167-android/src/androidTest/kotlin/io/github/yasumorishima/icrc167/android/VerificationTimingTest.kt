@@ -21,7 +21,7 @@ import org.junit.runner.RunWith
  * The certificate is the one id.ai served on 2026-09-09, shared with icrc167-canister-sig's
  * tests rather than copied. It carries a subnet delegation, so verifying it means two BLS
  * verifications, the delegation under the root key and the certificate under the subnet key:
- * the part of checking a real Internet Identity chain that dominates the cost.
+ * the part of checking a real Internet Identity chain that needs pairing arithmetic.
  *
  * The line goes to logcat, where scripts/device-tests.sh prints it into the CI log. An emulator
  * on a KVM host running a debuggable APK says little about a phone, so the bound on the cold

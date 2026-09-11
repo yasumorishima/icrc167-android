@@ -42,7 +42,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Two controls run beside it, because a match on its own would also fit a canister that
  * answers everyone alike: an anonymous call has to come back as 2vxsx-fae, and the same chain
  * signed with a key it does not name has to be refused by the replica for its signature.
- * Every line says PASS or FAIL, so nobody has to judge the output by eye.
+ * Every verdict says PASS or FAIL, so nobody has to judge the output by eye. TIME lines say
+ * how long a step took, and how much of it was BLS.
  */
 class DemoActivity : Activity() {
 
@@ -57,7 +58,8 @@ class DemoActivity : Activity() {
         }
     }
 
-    // The library default, with MIRACL timed.
+    // The library default (Icrc167Client's chainVerifier parameter), with MIRACL timed. It is
+    // a copy, so a change to that default has to be made here as well.
     private val client by lazy {
         Icrc167Client(
             this,

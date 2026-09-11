@@ -177,7 +177,7 @@ a `+` that the next decode turns into a space. Parse `encodedFragment`, never `g
 
 ### How long verification takes
 
-Checking a real Internet Identity chain is dominated by verifying the certificate behind its
+Checking a real Internet Identity chain includes verifying the certificate behind its
 canister signature: with a subnet delegation, two BLS12-381 verifications in pure Java.
 `VerificationTimingTest` times the certificate `id.ai` served, on the device job's emulator
 (x86_64, API 34, a debuggable build), and the job prints the result. Three runs on 2026-09-11:

@@ -30,6 +30,8 @@ print_timing() {
   echo "$lines"
 }
 
+# Start from an empty logcat, so the timing line below can only have come from this run.
+adb logcat -c || true
 run "instrumented tests" gradle --no-daemon --stacktrace :icrc167-android:connectedDebugAndroidTest
 run "verification timing" print_timing
 run "fragment probe" bash scripts/fragment-probe.sh
