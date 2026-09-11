@@ -32,10 +32,10 @@ import org.junit.runner.RunWith
 /**
  * The client on a real device: real preferences, the real Keystore, real Ed25519 chains.
  *
- * Each test that guards a fix is run against a copy of the library with that fix reverted,
- * and has to fail there before it is trusted; the runs are linked from the pull request that
- * added it. A test that cannot fail proves nothing, for the same reason a passing round trip
- * proves nothing: the principal comes out of the answer itself.
+ * Each test that guards a fix has to fail against a copy of the library with the fixes
+ * reverted before it is trusted; the runs are linked from the pull request that added it.
+ * A test that cannot fail proves nothing, for the same reason a passing round trip proves
+ * nothing: the principal comes out of the answer itself.
  */
 @RunWith(AndroidJUnit4::class)
 class Icrc167ClientTest {
