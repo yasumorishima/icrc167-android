@@ -10,6 +10,9 @@ android {
 
     defaultConfig {
         minSdk = 26
+        // The client needs a real Context, real preferences and the Android Keystore, none of
+        // which a JVM unit test has, so its tests run on a device.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -35,4 +38,8 @@ dependencies {
     // and any existing Internet Identity session already live. A WebView would see neither.
     implementation("androidx.browser:browser:1.10.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
+
+    // The device tests sign their own delegations with the BouncyCastle above.
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
