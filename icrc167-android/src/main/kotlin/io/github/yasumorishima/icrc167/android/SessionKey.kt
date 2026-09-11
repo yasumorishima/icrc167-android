@@ -92,16 +92,6 @@ public class SessionKeyStore(context: Context) {
         preferences.edit().remove(PENDING_SEED).apply()
     }
 
-    /** Promotes whatever the pending slot holds, or returns null. Prefer [promote]. */
-    public fun promotePending(): SessionKey? {
-        synchronized(LOCK) {
-            val key = load(PENDING_SEED) ?: return null
-            store(ACTIVE_SEED, key)
-            preferences.edit().remove(PENDING_SEED).apply()
-            return key
-        }
-    }
-
     public fun discardPending(): Unit = synchronized(LOCK) {
         preferences.edit().remove(PENDING_SEED).apply()
     }

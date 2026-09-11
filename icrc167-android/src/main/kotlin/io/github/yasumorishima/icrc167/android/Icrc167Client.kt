@@ -181,10 +181,15 @@ public class Icrc167Client(
             }
 
             is Icrc167Result.Authenticated -> {
-                when (
-                    val verification =
-                        chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
-                ) {
+                // The chain arrives from outside. A verifier that throws on input it did not
+                // expect must not take the app down with it: that is a refusal like any other.
+                val verification = try {
+                    chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
+                } catch (e: Exception) {
+                    abandonAttempt()
+                    return AuthOutcome.Failed("chain could not be checked: " + e.message)
+                }
+                when (verification) {
                     is ChainVerification.Invalid -> {
                         abandonAttempt()
                         AuthOutcome.Failed("chain rejected: ${verification.reason}")
