@@ -29,7 +29,7 @@ real passkey on a real device.
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Checking the node signature on a query response | done, verified to the network root key |
 | Callback origin (the two well-known documents) | live, and read back on every deploy |
-| Demo app | in `demo/`, not yet run against Internet Identity |
+| Demo app | built and signed with the key `assetlinks.json` names; not yet run against Internet Identity |
 
 ### Modules
 
@@ -265,9 +265,13 @@ everyone alike: an anonymous call has to come back as `2vxsx-fae`, and the same 
 with a key it does not name has to be refused by the replica for its signature. Every line
 says PASS or FAIL, so the result does not depend on reading the output by eye.
 
-It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, so it only
-receives the answer once `assetlinks.json` carries its package name and the fingerprint of the
-key it is signed with. Until then the flow runs in the browser and stops at the callback page.
+It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
+origin's `assetlinks.json` names it together with the fingerprint of its release key, so
+Android hands the callback to the release APK. `.github/workflows/demo-release.yml` builds it,
+refuses to go on unless `scripts/demo-signing-check.sh` finds it is exactly what
+`assetlinks.json` names, and on request publishes it as `icrc167-demo.apk` under Releases, with
+MIRACL's licence beside it. The same check runs on the debug build and has to *fail* there,
+which shows the comparison can fail at all. A debug build keeps the callback in the browser.
 
 ## What you have to host
 
@@ -283,14 +287,15 @@ This one is live at `https://callback-origin.vercel.app`, deployed from `callbac
 `.github/workflows/deploy-callback-origin.yml`. Two things about the host were measured rather
 than assumed on 2026-09-10: Vercel does serve a dot-directory, and the per-deployment URL and
 the team-scoped one both answer `302` (deployment protection), which the signer refuses — only
-the stable project domain works. The `assetlinks.json` there is still a template, because
-there is no app to fingerprint yet; Internet Identity does not read that file, so the browser
-half of the flow does not wait for it.
+the stable project domain works. Its `assetlinks.json` names the demo app
+(`io.github.yasumorishima.icrc167.demo`) and the SHA-256 fingerprint of the one key the demo
+release is signed with. That key exists only in the repository secrets.
 
 Both are read back rather than trusted: `scripts/check-callback-origin.sh` fetches them the
 way the signer and the platform do, and two workflows call it — the CI job `well-known`,
 which runs when the repository variable `CALLBACK_ORIGIN` is set, and the deploy job, which
-also compares the served callback list against the one in the commit it just published.
+also compares the served callback list and `assetlinks.json` against the ones in the commit
+it just published. It refuses to publish the `assetlinks.json` template.
 
 Note that **GitHub Pages is not suitable** as this origin: serving an extensionless path with
 `application/json` there requires the directory-plus-`index.json` trick, which introduces a
