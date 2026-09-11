@@ -38,6 +38,12 @@ public sealed interface AuthOutcome {
  * and any existing Internet Identity session live in the user's browser and a WebView can see
  * neither. The answer comes back as a verified App Link, which is why [callbackUrl] must be a
  * host this app owns through Digital Asset Links.
+ *
+ * Safe to call from any thread of one process. Starting an attempt and completing one are
+ * serialised across the process, so there is one attempt at a time whatever callback URL a
+ * client was built with: both read and write the pending attempt and its session key, and a
+ * new attempt landing in the middle of a completion would bind the chain to the wrong key.
+ * Nothing coordinates separate processes.
  */
 public class Icrc167Client(
     context: Context,
@@ -74,7 +80,10 @@ public class Icrc167Client(
      * Starts an attempt and returns the URL to open. Prefer [launch] unless the app wants to
      * open the browser itself.
      */
-    public fun beginAuthentication(targets: List<Principal>? = null): Pending {
+    public fun beginAuthentication(targets: List<Principal>? = null): Pending =
+        synchronized(ATTEMPT_LOCK) { startAttempt(targets) }
+
+    private fun startAttempt(targets: List<Principal>?): Pending {
         // A fresh key every time: presenting one public key to a signer twice would make two
         // sign-ins linkable by the key alone. It only replaces the active key on success.
         val key = keys.beginAttempt()
@@ -109,8 +118,15 @@ public class Icrc167Client(
             .launchUrl(context, Uri.parse(started.authorizationUrl))
     }
 
-    /** Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. */
-    public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome {
+    /**
+     * Feed this every incoming `ACTION_VIEW` intent; it ignores links that are not ours. It
+     * verifies the chain, which for a real Internet Identity chain means BLS pairings, and holds
+     * the attempt lock while it does, so call it off the main thread.
+     */
+    public fun handleRedirect(intent: Intent, nowNanos: BigInteger = systemNanos()): AuthOutcome =
+        synchronized(ATTEMPT_LOCK) { completeAttempt(intent, nowNanos) }
+
+    private fun completeAttempt(intent: Intent, nowNanos: BigInteger): AuthOutcome {
         val uri = intent.data ?: return AuthOutcome.NotOurs
 
         // Read the *encoded* fragment. Uri.getFragment() percent-decodes the whole thing, so
@@ -165,17 +181,29 @@ public class Icrc167Client(
             }
 
             is Icrc167Result.Authenticated -> {
-                when (
-                    val verification =
-                        chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
-                ) {
+                // The chain arrives from outside. A verifier that throws on input it did not
+                // expect must not take the app down with it: that is a refusal like any other.
+                val verification = try {
+                    chainVerifier.verify(result.chain, key.publicKeyDer, nowNanos)
+                } catch (e: Exception) {
+                    abandonAttempt()
+                    return AuthOutcome.Failed("chain could not be checked: " + e)
+                }
+                when (verification) {
                     is ChainVerification.Invalid -> {
                         abandonAttempt()
                         AuthOutcome.Failed("chain rejected: ${verification.reason}")
                     }
                     is ChainVerification.Valid -> {
+                        // The key the chain was just verified against, not a second read of the
+                        // pending slot, which can fail or find a different key.
+                        try {
+                            keys.promote(key)
+                        } catch (e: Exception) {
+                            abandonAttempt()
+                            return AuthOutcome.Failed("could not keep the session key: " + e)
+                        }
                         clearPending()
-                        keys.promotePending()
                         AuthOutcome.Success(
                             principal = verification.principal,
                             chain = result.chain,
@@ -188,7 +216,7 @@ public class Icrc167Client(
     }
 
     /** Forgets the pending attempt and every session key, e.g. on sign-out. */
-    public fun signOut() {
+    public fun signOut(): Unit = synchronized(ATTEMPT_LOCK) {
         clearPending()
         keys.clear()
     }
@@ -227,6 +255,13 @@ public class Icrc167Client(
         maxTimeToLiveNanos.divide(BigInteger.valueOf(1_000_000)).toLong()
 
     private companion object {
+        /**
+         * One lock for the process, not one per client. The attempt lives in preferences and
+         * in the key store, which every client in the process shares, and an activity that is
+         * recreated builds a new client while the old one may still be completing.
+         */
+        val ATTEMPT_LOCK = Any()
+
         const val PREFERENCES = "icrc167-pending"
         const val PENDING_ID = "request-id"
         const val PENDING_STATE = "state"

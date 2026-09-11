@@ -234,7 +234,7 @@ public object AgentCbor {
             return try {
                 decoder.decode(java.nio.ByteBuffer.wrap(raw)).toString()
             } catch (e: java.nio.charset.CharacterCodingException) {
-                throw AgentCborException("a text string is not valid UTF-8: ${e.message}")
+                throw AgentCborException("a text string is not valid UTF-8: $e")
             }
         }
 
