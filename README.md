@@ -159,6 +159,13 @@ gave the second answer — to this chain and to every genuine Internet Identity 
 real sign-in could have completed. Whether a *valid* canister signature issued today is
 accepted is a separate question, and only a real sign-in answers it.
 
+The client also has instrumented tests of its own (`Icrc167ClientTest`), run on the same
+emulator before the probes by `scripts/device-tests.sh`, which runs every device check to the
+end even when one fails. Each test that guards a fix was run against a copy of the library
+with that fix reverted, and failed there: the attempt lock, promotion of the key the chain was
+verified against, the guard around the verifier, and the refusal when a key cannot be stored
+(runs 34558835717 and 34559941759).
+
 What this does *not* establish: that a real Internet Identity round trip works. Verifying
 the chain is covered elsewhere — see the canister-signature section above — but nothing here
 exercises Custom Tabs, Digital Asset Links verification, or the signer's own callback
@@ -193,6 +200,9 @@ sign-in is usually that first call. These are emulator numbers from shared CI ho
 why they spread close to threefold, and they say nothing about a phone. The test fails if the cold run exceeds
 three times the slowest of them, to catch a regression. A phone's number comes from the demo,
 which prints how long checking the answer took and how much of it was BLS.
+
+Later runs have stayed inside the bound. The slowest cold run so far took 1235 ms
+(run 34576599112).
 
 ### The specification is a draft
 
@@ -281,8 +291,10 @@ verified with the clock set to the moment they were signed.
 the device only shows that the chain agrees with itself; the canister is the outside witness.
 Two controls run beside it, because a match on its own would also fit a canister that answers
 everyone alike: an anonymous call has to come back as `2vxsx-fae`, and the same chain signed
-with a key it does not name has to be refused by the replica for its signature. Every line
-says PASS or FAIL, so the result does not depend on reading the output by eye.
+with a key it does not name has to be refused by the replica for its signature. Every verdict
+says PASS or FAIL, so the result does not depend on reading the output by eye. TIME lines say
+how long checking the answer and each whoami took, and how much of that was BLS, so a sign-in
+on a phone gives the number an emulator cannot.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
