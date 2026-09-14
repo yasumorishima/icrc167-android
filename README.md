@@ -14,8 +14,8 @@ Swift). This is the Android counterpart.
 **Early, but the whole verification path is now there.** A real Internet Identity chain is
 rooted in an IC canister signature, and checking one of those is checking a state-tree
 certificate against the network root key — that is implemented, against the specification and
-against certificates the IC actually issues. What has not happened yet is a round trip with a
-real passkey on a real device.
+against certificates the IC actually issues. A round trip with a real passkey on a real phone
+passed on 2026-09-14 (see [the first real sign-in](#the-first-real-sign-in)).
 
 | | |
 |---|---|
@@ -29,7 +29,7 @@ real passkey on a real device.
 | Calling a canister as the identity you were handed | done, round-tripped against mainnet |
 | Checking the node signature on a query response | done, verified to the network root key |
 | Callback origin (the two well-known documents) | live, and read back on every deploy |
-| Demo app | built and signed with the key `assetlinks.json` names; not yet run against Internet Identity |
+| Demo app | signed in with Internet Identity on a real phone with a real passkey: all three verdicts PASS (2026-09-14) |
 
 ### Modules
 
@@ -170,7 +170,8 @@ those tests after the runs.
 What this does *not* establish: that a real Internet Identity round trip works. Verifying
 the chain is covered elsewhere — see the canister-signature section above — but nothing here
 exercises Custom Tabs, Digital Asset Links verification, or the signer's own callback
-matching, and no sign-in with a real passkey has happened yet.
+matching. Those were exercised by a real sign-in on a phone; see
+[the first real sign-in](#the-first-real-sign-in).
 
 The same run also pins down a trap worth stating plainly. `Uri.getFragment()`
 percent-decodes the *whole* fragment before you can split it:
@@ -296,6 +297,44 @@ with a key it does not name has to be refused by the replica for its signature. 
 says PASS or FAIL, so the result does not depend on reading the output by eye. TIME lines say
 how long checking the answer and the signed-in and anonymous whoami calls took, and how much
 of that was BLS, so a sign-in on a phone gives the number an emulator cannot.
+
+### The first real sign-in
+
+On 2026-09-14 the demo (`demo-d07dc3e`) signed in on a Sony XQ-BT44 (Android 12). The Custom Tab
+was Microsoft Edge 152, and the passkey prompt came from Google Play services. The screen read:
+
+| verdict | |
+|---|---|
+| PASS | the canister sees the principal the chain names |
+| PASS | an anonymous call is seen as `2vxsx-fae` |
+| PASS | a key the chain does not name is refused (`400: Invalid signature`) |
+
+| TIME | total | of which BLS |
+|---|---|---|
+| checking the answer, including the Keystore | 473 ms | 332 ms |
+| whoami as the signed-in identity, two HTTP calls | 1227 ms | 254 ms |
+| whoami anonymously, two HTTP calls | 1133 ms | 219 ms |
+
+These are one run on one phone, not a distribution.
+
+Two things had to change first:
+
+- **The lifetime check refused every real answer.** Internet Identity's URL transport returns
+  two hops. The canister-signed hop to an ephemeral key expired 7.999 h out for an 8 h request.
+  The hop from that key to the session key expired 720 h out (`OUTER_DELEGATION_EXPIRATION_MS`
+  in internet-identity `src/frontend/src/lib/utils/transport/url.ts`). Each hop used to be
+  compared with the request on its own. A chain is usable only while every hop is, so the
+  earliest expiration is what is now compared (#33, `Icrc167LifetimeTest`).
+- **An installed Internet Identity web app took the link.** Chrome had installed `id.ai` as a web
+  app on that phone, and that web app claims `id.ai` links. A Custom Tab launch and a plain
+  `ACTION_VIEW` both opened in it.
+  - On that phone Chrome never showed the passkey prompt. DevTools over wireless debugging
+    showed II's `navigator.credentials.get` still pending: a second request was refused with
+    `A request is already pending`.
+  - With the web app removed and Edge as the default browser, the same flow completed.
+
+  The library does not yet pick the browser itself, so a signer web app installed on the device
+  still decides where the link opens.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
