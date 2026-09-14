@@ -49,8 +49,9 @@ class BrowserChoiceTest {
 
     @After
     fun cleanUp() {
-        approveSignerLink(false)
         Icrc167Client(context, Callbacks.URL).signOut()
+        // Below 31 the approval never happened, and @Before has already failed the test.
+        if (Build.VERSION.SDK_INT >= 31) approveSignerLink(false)
     }
 
     /** What a user, or the installer of a web app, does to let an app open a site's links. */

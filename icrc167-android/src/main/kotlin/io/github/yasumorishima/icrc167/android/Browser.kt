@@ -17,16 +17,17 @@ import androidx.browser.customtabs.CustomTabsService
  * things can move a link there, and an intent addressed to a browser's package stops both:
  * - Android resolves an unaddressed link against every app approved for the site. An addressed
  *   intent is only resolved against that package.
- * - A Chromium browser that receives a link from another app hands it to a WebAPK for the site
- *   from Android 12 on, unless the intent named the browser's own package, which it takes as
- *   the app wanting the browser (`ExternalNavigationHandler` and `RedirectHandler` in Chromium's
+ * - Chrome, from Android 12 on, hands a link it receives from another app to a WebAPK it
+ *   validates for the site, unless the intent named Chrome's own package, which it takes as the
+ *   app wanting the browser (`ExternalNavigationHandler` and `RedirectHandler` in Chromium's
  *   components/external_intents, as of September 2026). That is read from the source, not
- *   observed on the phone.
+ *   observed on the phone, and other Chromium browsers were not examined.
  *
  * Browsers are found with a link that has a scheme and no host. A browser handles every such
  * link; an app that claims particular sites, which is what an installed web app is, handles none.
- * With no default chosen, the system's own browsers come first so that an app merely declaring
- * itself a browser is not picked silently where Android would have asked.
+ * With no default chosen, a system browser comes before other Custom Tabs browsers, so that an
+ * app merely declaring itself one is less likely to be picked silently where Android would have
+ * asked.
  *
  * On Android 11 and later this depends on the `<queries>` this library's manifest declares, which
  * is merged into the app's.
