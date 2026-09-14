@@ -333,8 +333,13 @@ Two things had to change first:
     `A request is already pending`.
   - With the web app removed and Edge as the default browser, the same flow completed.
 
-  The library does not yet pick the browser itself, so a signer web app installed on the device
-  still decides where the link opens.
+  `launch` now addresses the Custom Tab to a browser by package (`preferredBrowserPackage`: the
+  default browser, else a Custom Tabs browser). That stops two routes to such a web app:
+  Android resolving the link to an app approved for the site, which `BrowserChoiceTest` measures
+  on the emulator with a stand-in claimant and two mutations; and Chrome passing a link from
+  another app to a WebAPK, which, in Chromium's source, it does not do when the intent names
+  Chrome. Which route moved the page on that phone is not known, and a phone with the web app
+  installed again is still to be tried.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so

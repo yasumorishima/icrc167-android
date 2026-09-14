@@ -117,13 +117,25 @@ public class Icrc167Client(
      * where that wait is a pause: on the emulator the device tests run on, the certificate
      * check alone has taken from about 0.2 s to over a second (see VerificationTimingTest and
      * the README).
+     *
+     * The tab is addressed to [browserPackage]: Android cannot give the page to another app, and
+     * a Chromium browser takes it as meant for itself rather than for a web app of the signer
+     * (read from Chromium's source; see [preferredBrowserPackage]). Null leaves the choice to
+     * Android. A package that is not installed makes the start fail with
+     * `ActivityNotFoundException`.
      */
-    public fun launch(context: Context, targets: List<Principal>? = null) {
+    @JvmOverloads
+    public fun launch(
+        context: Context,
+        targets: List<Principal>? = null,
+        browserPackage: String? = preferredBrowserPackage(context),
+    ) {
         val started = beginAuthentication(targets)
-        CustomTabsIntent.Builder()
+        val tab = CustomTabsIntent.Builder()
             .setShowTitle(true)
             .build()
-            .launchUrl(context, Uri.parse(started.authorizationUrl))
+        if (browserPackage != null) tab.intent.setPackage(browserPackage)
+        tab.launchUrl(context, Uri.parse(started.authorizationUrl))
     }
 
     /**

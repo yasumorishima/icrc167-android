@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!--
-      The library declares nothing of its own. The App Link intent-filter and the
-      assetlinks.json that verifies it belong to the consuming app, because the callback
-      origin is the app's own domain, not this library's.
+      The App Link intent-filter and the assetlinks.json that verifies it belong to the consuming
+      app, because the callback origin is the app's own domain, not this library's.
+
+      What the library does declare is what it needs to see: from Android 11 an app cannot see
+      which browsers are installed unless it says it looks for them, and without that
+      preferredBrowserPackage finds none and the sign-in is left to whichever app claims the
+      signer's URL.
     -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
 </manifest>
