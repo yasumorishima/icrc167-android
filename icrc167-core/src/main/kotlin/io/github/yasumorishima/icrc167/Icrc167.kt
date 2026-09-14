@@ -180,13 +180,16 @@ public class Icrc167AuthRequest internal constructor(
             )
         }
 
-        // A signer may shorten the lifetime but must not extend it. The tolerance absorbs
-        // clock skew between us and the signer, not a materially longer grant.
+        // A signer may shorten the lifetime but must not extend it. A chain is usable only while
+        // every hop is, so what it grants ends at its earliest expiration: Internet Identity's URL
+        // transport caps its canister-signed hop at the request and then adds a 30-day hop to the
+        // session key, and that chain lives no longer than was asked. Comparing each hop on its
+        // own refused every real sign-in. The tolerance absorbs clock skew between us and the
+        // signer, not a materially longer grant. An empty chain is left to the chain verifier.
         val latestAcceptable = nowNanos + maxTimeToLiveNanos + CLOCK_SKEW_NANOS
-        delegations.forEach { hop ->
-            if (hop.delegation.expiration > latestAcceptable) {
-                return Icrc167Result.Rejected("delegation outlives the requested maxTimeToLive")
-            }
+        val effectiveExpiration = delegations.minOfOrNull { it.delegation.expiration }
+        if (effectiveExpiration != null && effectiveExpiration > latestAcceptable) {
+            return Icrc167Result.Rejected("delegation outlives the requested maxTimeToLive")
         }
 
         val scopes = delegations.mapNotNull { it.delegation.targets }
