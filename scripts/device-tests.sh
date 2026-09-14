@@ -36,6 +36,13 @@ count_tests() {
     skipped=$((skipped + $(grep -oE '<skipped' "$x" | wc -l)))
   done
   echo "$cases test cases ran, $expected declared; $bad failed, $skipped skipped"
+  # AGP 9 prints neither the name nor the message of a failing test, so without this a red run
+  # says only that something failed.
+  if [ "$bad" -gt 0 ]; then
+    for x in "${xmls[@]}"; do
+      awk '/<testcase /{name=$0} /<(failure|error)[ >]/{print name; n=25} n>0{print; n--}' "$x"
+    done
+  fi
   [ "$cases" -eq "$expected" ] && [ "$bad" -eq 0 ] && [ "$skipped" -eq 0 ]
 }
 
