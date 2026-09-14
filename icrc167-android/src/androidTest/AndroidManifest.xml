@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+          Stands in for an installed web app of the signer: an app other than a browser that
+          claims the signer's authorisation URL. On a real phone that was Internet Identity
+          installed by Chrome, and it took the sign-in away from the browser.
+        -->
+        <activity
+            android:name="io.github.yasumorishima.icrc167.android.SignerWebAppStandIn"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="id.ai"
+                    android:pathPrefix="/authorize" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

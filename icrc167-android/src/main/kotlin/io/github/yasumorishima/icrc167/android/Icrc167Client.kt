@@ -117,13 +117,21 @@ public class Icrc167Client(
      * where that wait is a pause: on the emulator the device tests run on, the certificate
      * check alone has taken from about 0.2 s to over a second (see VerificationTimingTest and
      * the README).
+     *
+     * The tab is addressed to [browserPackage], so an installed web app of the signer cannot
+     * take the page; see [preferredBrowserPackage]. Null leaves the choice to Android.
      */
-    public fun launch(context: Context, targets: List<Principal>? = null) {
+    public fun launch(
+        context: Context,
+        targets: List<Principal>? = null,
+        browserPackage: String? = preferredBrowserPackage(context),
+    ) {
         val started = beginAuthentication(targets)
-        CustomTabsIntent.Builder()
+        val tab = CustomTabsIntent.Builder()
             .setShowTitle(true)
             .build()
-            .launchUrl(context, Uri.parse(started.authorizationUrl))
+        if (browserPackage != null) tab.intent.setPackage(browserPackage)
+        tab.launchUrl(context, Uri.parse(started.authorizationUrl))
     }
 
     /**

@@ -23,6 +23,7 @@ import io.github.yasumorishima.icrc167.agent.Signer
 import io.github.yasumorishima.icrc167.android.AuthOutcome
 import io.github.yasumorishima.icrc167.android.Icrc167Client
 import io.github.yasumorishima.icrc167.android.SessionKey
+import io.github.yasumorishima.icrc167.android.preferredBrowserPackage
 import io.github.yasumorishima.icrc167.canistersig.CanisterSignatureVerifier
 import io.github.yasumorishima.icrc167.canistersig.MiraclBls
 import io.github.yasumorishima.icrc167.certificate.BlsSignatureVerifier
@@ -87,7 +88,11 @@ class DemoActivity : Activity() {
         }
         signIn = Button(this).apply {
             text = "Sign in with Internet Identity"
-            setOnClickListener { client.launch(this@DemoActivity) }
+            setOnClickListener {
+                val browser = preferredBrowserPackage(this@DemoActivity)
+                say(browserLine(browser))
+                client.launch(this@DemoActivity, browserPackage = browser)
+            }
         }
         // The same request, opened as an ordinary browser tab instead of a Custom Tab. Offered so
         // a sign-in that stalls in one can be tried in the other on the same phone. Android may
@@ -96,10 +101,13 @@ class DemoActivity : Activity() {
         signInInBrowser = Button(this).apply {
             text = "Sign in in the browser (not a Custom Tab)"
             setOnClickListener {
+                val browser = preferredBrowserPackage(this@DemoActivity)
+                say(browserLine(browser))
                 val started = client.beginAuthentication()
                 startActivity(
                     Intent(Intent.ACTION_VIEW, Uri.parse(started.authorizationUrl))
-                        .addCategory(Intent.CATEGORY_BROWSABLE),
+                        .addCategory(Intent.CATEGORY_BROWSABLE)
+                        .setPackage(browser),
                 )
             }
         }
@@ -264,6 +272,10 @@ class DemoActivity : Activity() {
     private fun verdict(passed: Boolean): String = if (passed) "PASS  " else "FAIL  "
 
     private fun report(line: String) = runOnUiThread { say(line) }
+
+    /** Which app the sign-in page was sent to, so a stalled sign-in says where it stalled. */
+    private fun browserLine(browser: String?): String =
+        "OPEN  " + (browser ?: "no browser visible, so Android chooses")
 
     private fun say(line: String) {
         status.append(line)
