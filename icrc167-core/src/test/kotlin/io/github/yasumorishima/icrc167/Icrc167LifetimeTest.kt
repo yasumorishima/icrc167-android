@@ -86,6 +86,26 @@ class Icrc167LifetimeTest {
     }
 
     @Test
+    fun `measures the earliest hop, not the first one`() {
+        // Pins the rule itself: checking only the first hop would refuse this chain, which
+        // lives one hour because its second hop does.
+        val root = TestKey.generate()
+        val intermediate = TestKey.generate()
+        val session = TestKey.generate()
+        val req = Icrc167.delegationRequest(callback = callback, sessionPublicKeyDer = session.der)
+
+        val result = req.complete(
+            twoHopReply(
+                req, root, intermediate, session,
+                innerExpiration = nowNanos().add(thirtyDays),
+                outerExpiration = nanosFromNow(3600),
+            ),
+        )
+
+        assertIs<Icrc167Result.Authenticated>(result)
+    }
+
+    @Test
     fun `refuses a chain in which every hop outlives the request`() {
         val root = TestKey.generate()
         val intermediate = TestKey.generate()
