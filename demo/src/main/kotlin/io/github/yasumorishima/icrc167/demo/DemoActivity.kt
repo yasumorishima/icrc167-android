@@ -3,6 +3,7 @@ package io.github.yasumorishima.icrc167.demo
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.widget.Button
@@ -75,6 +76,7 @@ class DemoActivity : Activity() {
     private val network: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
     private lateinit var signIn: Button
+    private lateinit var signInInBrowser: Button
     private lateinit var signOut: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +88,20 @@ class DemoActivity : Activity() {
         signIn = Button(this).apply {
             text = "Sign in with Internet Identity"
             setOnClickListener { client.launch(this@DemoActivity) }
+        }
+        // The same request, opened as an ordinary browser tab instead of a Custom Tab. Offered so
+        // a sign-in that stalls in one can be tried in the other on the same phone. Android may
+        // leave the answer in that tab instead of handing it to the app, which then shows the
+        // callback page's message: that still says the sign-in itself went through.
+        signInInBrowser = Button(this).apply {
+            text = "Sign in in the browser (not a Custom Tab)"
+            setOnClickListener {
+                val started = client.beginAuthentication()
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(started.authorizationUrl))
+                        .addCategory(Intent.CATEGORY_BROWSABLE),
+                )
+            }
         }
         signOut = Button(this).apply {
             text = "Sign out"
@@ -104,6 +120,7 @@ class DemoActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
             addView(signIn)
+            addView(signInInBrowser)
             addView(signOut)
             addView(status)
             addView(notice)
@@ -175,6 +192,7 @@ class DemoActivity : Activity() {
      */
     private fun busy(checking: Boolean) {
         signIn.isEnabled = !checking
+        signInInBrowser.isEnabled = !checking
         signOut.isEnabled = !checking
     }
 
