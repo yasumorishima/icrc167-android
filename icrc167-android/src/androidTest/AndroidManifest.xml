@@ -2,9 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <!--
-          Stands in for an installed web app of the signer: an app other than a browser that
-          claims the signer's authorisation URL. On a real phone that was Internet Identity
-          installed by Chrome, and it took the sign-in away from the browser.
+          Stands in for an app other than a browser that claims the signer's authorisation URL.
+          BrowserChoiceTest approves the link for it, which a declaration alone does not get.
         -->
         <activity
             android:name="io.github.yasumorishima.icrc167.android.SignerWebAppStandIn"

@@ -118,9 +118,13 @@ public class Icrc167Client(
      * check alone has taken from about 0.2 s to over a second (see VerificationTimingTest and
      * the README).
      *
-     * The tab is addressed to [browserPackage], so an installed web app of the signer cannot
-     * take the page; see [preferredBrowserPackage]. Null leaves the choice to Android.
+     * The tab is addressed to [browserPackage]: Android cannot give the page to another app, and
+     * a Chromium browser takes it as meant for itself rather than for a web app of the signer
+     * (read from Chromium's source; see [preferredBrowserPackage]). Null leaves the choice to
+     * Android. A package that is not installed makes the start fail with
+     * `ActivityNotFoundException`.
      */
+    @JvmOverloads
     public fun launch(
         context: Context,
         targets: List<Principal>? = null,

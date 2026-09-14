@@ -7,12 +7,15 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.yasumorishima.icrc167.Icrc167
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -24,11 +27,16 @@ import org.junit.runner.RunWith
 class SignerWebAppStandIn : Activity()
 
 /**
- * The sign-in page must reach a browser even when another app claims the signer's URL.
+ * The sign-in page must reach the chosen browser even when another app is approved for the
+ * signer's site.
  *
- * On a real phone, Internet Identity installed as a web app by Chrome took both the Custom Tab
- * and a plain browser intent, and the passkey prompt never came. This test's manifest declares an
- * activity that claims the same URL, so the device holds the same kind of claimant.
+ * This covers Android's part of the routing only. The web app that took the page on a real phone
+ * may instead have been reached through the browser, which a device test here cannot reproduce
+ * because it cannot install a WebAPK; see [preferredBrowserPackage].
+ *
+ * The approval matters: on API 34 an app that only declares the URL, neither verified nor
+ * approved, is not offered web links at all. The first run of this test measured that, when its
+ * control found only the browser.
  */
 @RunWith(AndroidJUnit4::class)
 class BrowserChoiceTest {
@@ -36,9 +44,23 @@ class BrowserChoiceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context: Context = instrumentation.targetContext
 
+    @Before
+    fun approveTheClaimant() = approveSignerLink(true)
+
     @After
     fun cleanUp() {
+        approveSignerLink(false)
         Icrc167Client(context, Callbacks.URL).signOut()
+    }
+
+    /** What a user, or the installer of a web app, does to let an app open a site's links. */
+    private fun approveSignerLink(approved: Boolean) {
+        assertTrue("link approval needs API 31, this is " + Build.VERSION.SDK_INT, Build.VERSION.SDK_INT >= 31)
+        val host = Uri.parse(Icrc167.INTERNET_IDENTITY_URL).host
+        val command = "pm set-app-links-user-selection --user 0 --package " + context.packageName +
+            " " + approved + " " + host
+        val output = instrumentation.uiAutomation.executeShellCommand(command)
+        ParcelFileDescriptor.AutoCloseInputStream(output).use { it.readBytes() }
     }
 
     /** Every package Android would hand this intent to. */
@@ -84,7 +106,7 @@ class BrowserChoiceTest {
         // assertion above is what the address changed and not a claimant that never matched.
         val unaddressed = Intent(tab).setPackage(null)
         assertTrue(
-            "the stand-in does not claim " + tab.data + "; takers " + takers(unaddressed),
+            "the stand-in does not take the signer's URL; takers " + takers(unaddressed),
             context.packageName in takers(unaddressed),
         )
     }
