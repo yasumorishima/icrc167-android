@@ -317,7 +317,7 @@ was Microsoft Edge 152, and the passkey prompt came from Google Play services. T
 
 These are one run on one phone, not a distribution.
 
-Two things had to change first:
+Two things were changed:
 
 - **The lifetime check refused every real answer.** Internet Identity's URL transport returns
   two hops. The canister-signed hop to an ephemeral key expired 7.999 h out for an 8 h request.
@@ -332,14 +332,49 @@ Two things had to change first:
     showed II's `navigator.credentials.get` still pending: a second request was refused with
     `A request is already pending`.
   - With the web app removed and Edge as the default browser, the same flow completed.
+  - The next day, on newer browser builds, the same missing prompt happened without the web app
+    (see below).
 
   `launch` now addresses the Custom Tab to a browser by package (`preferredBrowserPackage`: the
   default browser, else a Custom Tabs browser). That stops two routes to such a web app:
   Android resolving the link to an app approved for the site, which `BrowserChoiceTest` measures
   on the emulator with a stand-in claimant and two mutations; and Chrome passing a link from
   another app to a WebAPK, which, in Chromium's source, it does not do when the intent names
-  Chrome. Which route moved the page on that phone is not known, and a phone with the web app
-  installed again is still to be tried.
+  Chrome. Which route moved the page on that phone is not known.
+
+### On 2026-09-15 the stall did not need the web app
+
+On 2026-09-15 the same phone was tried again (`demo-86f5fb4`), and the missing prompt turned out
+not to need the web app:
+
+- With the web app installed again, Chrome and Edge opened the page in their own Custom Tab, not
+  in the web app, and the prompt still did not come. Brave was tried only after the web app had
+  been removed again.
+- Chrome, after the web app was removed, stopped in the same way.
+- The request that stops is the one II makes for an identity it has remembered in that browser.
+  Recorded over DevTools in Chrome and Brave, it is `navigator.credentials.get` with
+  `userVerification: "required"` and an 11-entry `allowCredentials` whose entries carry no
+  `transports`. During that request Google Play services (26.33.32) logged
+  `Transport smart-card not supported`. The same line was logged in the Edge run, which was not
+  hooked. No answer came within the 25 to 45 s that were watched (the request's own timeout is
+  60 s), and in the runs left for about three minutes the page stayed on `id.ai/authorize` (Chrome
+  showed "Authenticating...").
+- The browsers were Chromium 153 builds: Chrome 153.0.8010.36, Edge 153.0.4234.32, and Brave
+  reporting Chrome/153.0.8010.37.
+- A request with an empty `allowCredentials` (II's "Sign in with passkey", tried in Brave)
+  brought the prompt, and that sign-in finished with the same three PASS lines. TIME: checking
+  the answer 426 ms (BLS 340 ms), signed-in whoami 1478 ms (BLS 237 ms), anonymous whoami
+  1079 ms (BLS 226 ms). A later sign-in in the same Brave sent the 11-entry list and stopped
+  with the same log line.
+- In Chrome, with II's own call held back, the same 11 credential ids were sent again from the
+  page. Without `transports`, Play services logged the same line and no answer came in 35 s. With
+  `transports: ["internal", "hybrid"]` on each entry, that line was not logged, the prompt came,
+  and the request resolved in 5.3 s. That is one run of each.
+- The Edge that completed on 2026-09-14 was version 152. The Edge on the phone the next day was
+  153, installed at 07:39 that morning. Whether 152 avoids the failure was not measured.
+
+This library opens `id.ai/authorize` and does not make or change the page's
+`navigator.credentials.get` call.
 
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
