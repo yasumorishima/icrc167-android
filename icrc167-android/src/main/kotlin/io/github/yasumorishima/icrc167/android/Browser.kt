@@ -13,8 +13,10 @@ import androidx.browser.customtabs.CustomTabsService
  * browser. Null when no browser can be seen.
  *
  * Why name a browser at all. On a phone where Chrome had installed Internet Identity as a web app
- * (a WebAPK), the sign-in page opened in that web app and the passkey prompt never appeared. Two
- * things can move a link there, and an intent addressed to a browser's package stops both:
+ * (a WebAPK), the sign-in page opened in that web app rather than in a browser. (The next day, on
+ * newer browser builds, the same missing passkey prompt happened without the web app; see the
+ * README.) Two things can move a link there, and an intent addressed to a browser's package stops
+ * both:
  * - Android resolves an unaddressed link against every app approved for the site. An addressed
  *   intent is only resolved against that package.
  * - Chrome, from Android 12 on, hands a link it receives from another app to a WebAPK it
