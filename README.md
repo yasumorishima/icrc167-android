@@ -376,6 +376,9 @@ not to need the web app:
 This library opens `id.ai/authorize` and does not make or change the page's
 `navigator.credentials.get` call.
 
+Reported to Internet Identity as
+[dfinity/internet-identity#4334](https://github.com/dfinity/internet-identity/issues/4334).
+
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
 Android hands the callback to the release APK. `.github/workflows/demo-release.yml` builds it,
