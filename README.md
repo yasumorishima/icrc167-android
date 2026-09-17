@@ -298,6 +298,11 @@ says PASS or FAIL, so the result does not depend on reading the output by eye. T
 how long checking the answer and the signed-in and anonymous whoami calls took, and how much
 of that was BLS, so a sign-in on a phone gives the number an emulator cannot.
 
+An OPEN line, written before the tab opens, names the browser the page was sent to and the
+build of it. It is on the screen even when a sign-in never comes back, which is what a stalled
+run has to be read against: as the stall below shows, which build of which browser a phone
+carries is what decides the outcome.
+
 ### The first real sign-in
 
 On 2026-09-14 the demo (`demo-d07dc3e`) signed in on a Sony XQ-BT44 (Android 12). The Custom Tab
