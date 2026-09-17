@@ -13,6 +13,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+        // BrowserLine reads a version out of another app's package, which only means anything
+        // under Android's package-visibility rule, so its tests have to run on a device.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // The callback only reaches this app if Android can match the certificate the APK is
@@ -47,4 +50,9 @@ kotlin {
 dependencies {
     implementation(project(":icrc167-android"))
     implementation(project(":icrc167-agent"))
+
+    // The demo's own device tests. Held to the versions the library module already uses, so
+    // the emulator installs one runner and not two.
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

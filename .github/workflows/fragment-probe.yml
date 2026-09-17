@@ -20,6 +20,7 @@ on:
       - "icrc167-certificate/**"
       - "icrc167-canister-sig/**"
       - "icrc167-android/**"
+      - "demo/**"
       - "probe/**"
       - "fake-signer/**"
       - "scripts/**"
@@ -77,5 +78,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: android-device-test-reports
-          path: icrc167-android/build/reports/androidTests/connected
+          path: |
+            icrc167-android/build/reports/androidTests/connected
+            demo/build/reports/androidTests/connected
           retention-days: 7

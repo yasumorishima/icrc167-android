@@ -90,7 +90,7 @@ class DemoActivity : Activity() {
             text = "Sign in with Internet Identity"
             setOnClickListener {
                 val browser = preferredBrowserPackage(this@DemoActivity)
-                say(browserLine(browser))
+                say(browserLine(packageManager, browser))
                 client.launch(this@DemoActivity, browserPackage = browser)
             }
         }
@@ -102,7 +102,7 @@ class DemoActivity : Activity() {
             text = "Sign in in the browser (not a Custom Tab)"
             setOnClickListener {
                 val browser = preferredBrowserPackage(this@DemoActivity)
-                say(browserLine(browser))
+                say(browserLine(packageManager, browser))
                 val started = client.beginAuthentication()
                 startActivity(
                     Intent(Intent.ACTION_VIEW, Uri.parse(started.authorizationUrl))
@@ -272,10 +272,6 @@ class DemoActivity : Activity() {
     private fun verdict(passed: Boolean): String = if (passed) "PASS  " else "FAIL  "
 
     private fun report(line: String) = runOnUiThread { say(line) }
-
-    /** Which app the sign-in page was sent to, so a stalled sign-in says where it stalled. */
-    private fun browserLine(browser: String?): String =
-        "OPEN  " + (browser ?: "no browser visible, so Android chooses")
 
     private fun say(line: String) {
         status.append(line)

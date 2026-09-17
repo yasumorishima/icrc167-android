@@ -19,14 +19,15 @@ run() {
 }
 
 # Android Gradle plugin 9 stopped printing "Finished N tests", so the only record of how many
-# instrumented tests ran is the JUnit XML it writes. A run with fewer test cases than the source
+# instrumented tests ran is the JUnit XML it writes. A run with fewer test cases than the module
 # declares, or with any failure, error or skip, fails here rather than passing quietly.
 count_tests() {
+  local module="$1"
   local expected xmls cases=0 bad=0 skipped=0 x
-  expected="$(grep -rhE '^\s*@Test\b' icrc167-android/src/androidTest --include='*.kt' | wc -l)"
-  mapfile -t xmls < <(find icrc167-android/build -path '*androidTest-results*' -name 'TEST-*.xml')
+  expected="$(grep -rhE '^\s*@Test\b' "$module/src/androidTest" --include='*.kt' | wc -l)"
+  mapfile -t xmls < <(find "$module/build" -path '*androidTest-results*' -name 'TEST-*.xml')
   if [ "${#xmls[@]}" -eq 0 ]; then
-    echo "no JUnit XML under icrc167-android/build/**/androidTest-results"
+    echo "no JUnit XML under $module/build/**/androidTest-results"
     return 1
   fi
   for x in "${xmls[@]}"; do
@@ -61,8 +62,12 @@ print_timing() {
 # Start from an empty logcat, so the timing line below can only have come from this run.
 adb logcat -c || true
 run "instrumented tests" gradle --no-daemon --stacktrace :icrc167-android:connectedDebugAndroidTest
-run "instrumented test count" count_tests
+run "instrumented test count" count_tests icrc167-android
 run "verification timing" print_timing
+# The demo's own tests, after the timing line has been read: they install a second app and would
+# otherwise sit between the run that writes that line and the read of it.
+run "demo instrumented tests" gradle --no-daemon --stacktrace :demo:connectedDebugAndroidTest
+run "demo instrumented test count" count_tests demo
 run "fragment probe" bash scripts/fragment-probe.sh
 run "authentication round trip" bash scripts/auth-roundtrip.sh
 
