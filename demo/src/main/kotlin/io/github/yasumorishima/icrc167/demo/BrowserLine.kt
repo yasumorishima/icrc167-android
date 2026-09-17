@@ -20,8 +20,17 @@ internal const val BUILD_UNREADABLE: String = "(build not readable)"
  */
 internal fun browserLine(packages: PackageManager, browser: String?): String {
     if (browser == null) return "OPEN  no browser visible, so Android chooses"
-    // Not installed, or not visible to this app, and getPackageInfo throws rather than
-    // returning null for either. versionName is nullable in its own right.
-    val build = runCatching { packages.getPackageInfo(browser, 0).versionName }.getOrNull()
-    return "OPEN  " + browser + " " + (build ?: BUILD_UNREADABLE)
+    // Absent, or hidden from this app by package visibility: getPackageInfo throws for either
+    // rather than returning null. Nothing else is caught, so a dead binder is not reported as
+    // a build that could not be read.
+    @Suppress("DEPRECATION") // The flags-object overload only exists from API 33.
+    val build = try {
+        packages.getPackageInfo(browser, 0).versionName
+    } catch (notInstalled: PackageManager.NameNotFoundException) {
+        null
+    }
+    // versionName is nullable in its own right, and a package may carry an empty one. Either
+    // would otherwise leave the line ending in a space, which is the very thing the constant
+    // above exists to prevent.
+    return "OPEN  " + browser + " " + (build?.takeIf { it.isNotBlank() } ?: BUILD_UNREADABLE)
 }
