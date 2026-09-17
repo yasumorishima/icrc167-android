@@ -379,6 +379,35 @@ This library opens `id.ai/authorize` and does not make or change the page's
 Reported to Internet Identity as
 [dfinity/internet-identity#4334](https://github.com/dfinity/internet-identity/issues/4334).
 
+### Chromium stopped sending the transport
+
+The browser side of that stall has a fix upstream, and the fix stops the transport from being
+sent rather than making it readable. Chromium's
+[crbug 555599813](https://issues.chromium.org/issues/555599813) records the same mechanism this
+page measured: GmsCore cannot unmarshal `AuthenticatorTransport.SMART_CARD` and hangs when
+`allowCredentials[].transports` carries smart-card, or when the relying party omits transports
+and Blink fills in every known transport.
+[CL 8385662](https://chromium-review.googlesource.com/c/chromium/src/+/8385662) makes
+`Fido2Api.transportToString` return null for `SMART_CARD` behind
+`kWebAuthnFilterSmartCardTransport`, which is `FEATURE_ENABLED_BY_DEFAULT`. It landed on `main`
+on 2026-09-10 and was merged to `branch-heads/8010` (M153) and to `8037` (M154) on 2026-09-14,
+those dates being Gerrit's, in UTC.
+
+Reading `components/webauthn/features.cc` at each tag, the flag is absent at every tag from
+`153.0.8010.36` through `.46` and present from `.47` on, and Chromium Dash lists `.47` as an
+Android stable release whose predecessor on that platform was `.37`. So `.47` is the first
+Android stable build carrying it, and every browser on the phone on 2026-09-15 was older.
+
+The change is Chromium's rather than Play services': Chrome stops sending the transport instead
+of Play services learning to read it, and the CL calls itself a temporary workaround. Whether
+Play services has been changed since has not been measured here. Because the change is the
+browser's, it arrives with each Chromium browser's own release: Brave took Chromium
+153.0.8010.48 in release 1.95.102 on 2026-09-16, Android APKs included, while the Edge on the
+phone, 153.0.4234.32, is still the current Edge for Android stable, released 2026-09-14, and
+Edge does not publish which Chromium build it carries. This library opens a Custom Tab in
+whichever browser it is pointed at, so which browser a phone carries is what decides the
+outcome. It has not been measured on the phone again.
+
 It claims `https://callback-origin.vercel.app/icrc167-callback` as an App Link, and the
 origin's `assetlinks.json` names it together with the fingerprint of its release key, so
 Android hands the callback to the release APK. `.github/workflows/demo-release.yml` builds it,
