@@ -21,7 +21,7 @@ dependencies {
     // The real pairing, so the recorded certificate is checked to the mainnet root key rather
     // than to a stub.
     testImplementation(project(":icrc167-canister-sig"))
-    testImplementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.86")
 }
 
 tasks.test {
