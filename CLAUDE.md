@@ -38,6 +38,10 @@ What the setup script works around:
   (`~/.gradle/init.d/`) points it at Google's mirror; the repository's build is unchanged.
 - The image has Gradle 8.14 and JDK 21 only; AGP 9.5 needs Gradle 9.6+, the toolchain is 17.
 
+`ANDROID_HOME` stays unset in the shell; Gradle finds the SDK through `local.properties`, which the
+script writes. Only the `min-sdk` job's dexdump step needs it:
+`export ANDROID_HOME=/root/.local/opt/android-sdk`.
+
 Not possible in the cloud container: the device tests (`scripts/device-tests.sh`, emulator) —
 there is no `/dev/kvm`. Leave those to the CI emulator job.
 
