@@ -50,3 +50,4 @@ there is no `/dev/kvm`. Leave those to the CI emulator job.
 - `bcprov-jdk18on` and `bcutil-jdk18on` are on different versions on purpose. Do not align them.
 - Do not deploy or release from a session: `deploy-callback-origin.yml` (Vercel) and `demo-release.yml` (keystore) use secrets and are for a person to run.
 - Prefer measured claims: when a comment or README states a fact, it was checked. Keep it that way.
+- Do not force-push from a cloud session; the permission check blocks it. To restart a branch whose PR was already merged, merge the old remote branch into the new one and push normally.
